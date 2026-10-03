@@ -29,7 +29,7 @@ from app.main import app
 from app.models import User
 
 BACKEND = Path(__file__).resolve().parent.parent
-TABLES = "worker_heartbeats, audit_log, api_keys, user_settings, login_attempts, invites, sessions, users"
+TABLES = "market_feed_status, market_watch, chart_layouts, dashboard_layouts, worker_heartbeats, audit_log, api_keys, user_settings, login_attempts, invites, sessions, users"
 PASSWORD = "correct horse battery"
 
 

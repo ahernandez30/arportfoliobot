@@ -147,3 +147,51 @@ class AuditLog(Base):
     detail: Mapped[str] = mapped_column(Text, default="")
     ip: Mapped[str | None] = mapped_column(INET)
 
+
+
+class DashboardLayout(Base):
+    """A user's dashboard tiles and where they sit (validated by app.layouts)."""
+
+    __tablename__ = "dashboard_layouts"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    data: Mapped[dict] = mapped_column(JSONB, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ChartLayout(Base):
+    """A user's four charts on the Charts tab: symbol and timeframe of each."""
+
+    __tablename__ = "chart_layouts"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    data: Mapped[dict] = mapped_column(JSONB, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class MarketWatch(Base):
+    """Symbols a user currently has on screen. The web server refreshes seen_at while a
+    browser shows them; the worker streams live prices for recent rows only."""
+
+    __tablename__ = "market_watch"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(32), primary_key=True)
+    seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class MarketFeedStatus(Base):
+    """The worker's live price feed for each user: live, delayed, reconnecting, or a problem."""
+
+    __tablename__ = "market_feed_status"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    state: Mapped[str] = mapped_column(String(16))
+    detail: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Last time a price actually arrived (for spotting a stale feed, plan section 10).
+    last_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
