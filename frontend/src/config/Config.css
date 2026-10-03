@@ -1,0 +1,79 @@
+.config-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: thin;
+}
+
+.config-tabs a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-h);
+  padding: 0 14px;
+  color: var(--text-2);
+  text-decoration: none;
+  white-space: nowrap;
+  font-weight: 550;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.config-tabs a:hover {
+  color: var(--text);
+}
+
+.config-tabs a.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.qr {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.qr img {
+  width: 200px;
+  height: 200px;
+  border-radius: var(--radius-control);
+  background: #fff;
+}
+
+.qr-secret {
+  font-family: var(--font-num);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.key-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+}
+
+.key-row:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.key-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.key-name {
+  font-weight: 600;
+}
+
+.form-narrow {
+  max-width: 460px;
+}

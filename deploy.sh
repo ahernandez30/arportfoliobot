@@ -7,6 +7,7 @@ set -euo pipefail
 
 ROOT=/opt/arportfoliobot
 ENV_FILE=/etc/arportfoliobot/arportfoliobot.env
+KEY_FILE=/etc/arportfoliobot/master.key
 WEB_ROOT=/var/www/arportfoliobot
 cd "$ROOT"
 
@@ -27,6 +28,17 @@ if ! sudo test -f "$ENV_FILE"; then
     sudo install -d -m 700 -o root -g root "$(dirname "$ENV_FILE")"
     echo "ARPB_ENV=production" | sudo tee "$ENV_FILE" >/dev/null
     sudo chmod 600 "$ENV_FILE"
+fi
+
+step "Master key"
+# Created once and never replaced: replacing it would make every stored key unreadable.
+if ! sudo test -f "$KEY_FILE"; then
+    (cd backend && .venv/bin/python -m app.crypto) | sudo tee "$KEY_FILE" >/dev/null
+    sudo chown root:root "$KEY_FILE"
+    sudo chmod 600 "$KEY_FILE"
+    echo "Created $KEY_FILE (root-only)."
+else
+    echo "Present."
 fi
 
 step "Database migrations"

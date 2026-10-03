@@ -8,6 +8,9 @@ User=arpb
 Group=arpb
 WorkingDirectory=/opt/arportfoliobot/backend
 EnvironmentFile=/etc/arportfoliobot/arportfoliobot.env
+# Master key for stored secrets: the file stays root-only; systemd passes a copy
+# to this service only (see app/crypto.py).
+LoadCredential=master_key:/etc/arportfoliobot/master.key
 ExecStart=/opt/arportfoliobot/backend/.venv/bin/python -m app.worker
 Restart=always
 RestartSec=5

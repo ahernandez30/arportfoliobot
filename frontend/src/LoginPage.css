@@ -8,7 +8,7 @@
 
 .login-panel {
   width: 100%;
-  max-width: 380px;
+  max-width: 400px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius-panel);
@@ -32,78 +32,7 @@
   letter-spacing: -0.01em;
 }
 
-.muted {
-  color: var(--text-2);
-  margin: 0;
-  font-size: 0.9rem;
-}
-
-.login-panel label {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 0.9rem;
-  color: var(--text-2);
-}
-
-.login-panel input {
-  height: var(--control-h);
-  padding: 0 12px;
-  background: var(--bg);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  outline: none;
-}
-
-.login-panel input:focus {
-  border-color: var(--accent);
-}
-
-.login-panel button {
-  height: var(--control-h);
-  border: 0;
-  border-radius: var(--radius-control);
-  background: var(--accent);
-  color: var(--on-accent);
-  font-weight: 650;
-  cursor: pointer;
-}
-
-.login-panel button:hover {
-  filter: brightness(1.08);
-}
-
-.message {
-  margin: 0;
-  font-size: 0.9rem;
-  color: var(--text);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  padding: 10px 12px;
-}
-
-.server {
-  margin: 4px 0 0;
+.login-panel .small {
   font-size: 0.8rem;
-  color: var(--text-2);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--text-2);
-}
-
-.server-ok .dot {
-  background: var(--gain);
-}
-
-.server-down .dot {
-  background: var(--loss);
+  text-align: center;
 }

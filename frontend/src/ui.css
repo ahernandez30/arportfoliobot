@@ -1,0 +1,338 @@
+/* Shared building blocks: panels, forms, buttons, messages, tables. */
+
+.boot {
+  min-height: 100vh;
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 1100px;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.panel h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+}
+
+.panel h3 {
+  margin: 4px 0 0;
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+
+.panel.empty {
+  color: var(--text-2);
+}
+
+.panel.empty p {
+  margin: 0;
+}
+
+.muted {
+  color: var(--text-2);
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.num {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- forms ---------- */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.9rem;
+  color: var(--text-2);
+  min-width: 0;
+}
+
+.field .hint {
+  font-size: 0.8rem;
+}
+
+.input,
+.select {
+  height: var(--control-h);
+  padding: 0 12px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  outline: none;
+  width: 100%;
+  min-width: 0;
+}
+
+textarea.input {
+  height: auto;
+  min-height: 88px;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+.input:focus,
+.select:focus {
+  border-color: var(--accent);
+}
+
+.input.num {
+  font-family: var(--font-num);
+}
+
+.input.code {
+  font-family: var(--font-num);
+  font-size: 1.3rem;
+  letter-spacing: 0.3em;
+  text-align: center;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--control-h);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.check input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--accent);
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.segmented button {
+  min-height: var(--control-h);
+  padding: 0 16px;
+  border: 0;
+  background: var(--bg);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.segmented button + button {
+  border-left: 1px solid var(--border);
+}
+
+.segmented button[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 650;
+}
+
+/* ---------- buttons ---------- */
+
+.btn {
+  min-height: var(--control-h);
+  padding: 0 18px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--text-2);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  border-color: var(--accent);
+}
+
+.btn-danger {
+  color: var(--loss);
+  border-color: color-mix(in srgb, var(--loss) 45%, var(--border));
+}
+
+.btn-danger:hover:not(:disabled) {
+  border-color: var(--loss);
+}
+
+.btn-small {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 0.85rem;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+/* ---------- messages ---------- */
+
+.msg {
+  margin: 0;
+  font-size: 0.9rem;
+  border-radius: var(--radius-control);
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  overflow-wrap: anywhere;
+}
+
+.msg-error {
+  border-color: color-mix(in srgb, var(--loss) 55%, var(--border));
+  color: var(--text);
+}
+
+.msg-error::before {
+  content: '✕ ';
+  color: var(--loss);
+  font-weight: 700;
+}
+
+.msg-ok {
+  border-color: color-mix(in srgb, var(--gain) 55%, var(--border));
+}
+
+.msg-ok::before {
+  content: '✓ ';
+  color: var(--gain);
+  font-weight: 700;
+}
+
+.msg-warn {
+  border-color: var(--paper);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 650;
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.badge-on {
+  color: var(--gain);
+  border-color: color-mix(in srgb, var(--gain) 50%, var(--border));
+}
+
+.badge-off {
+  color: var(--loss);
+  border-color: color-mix(in srgb, var(--loss) 50%, var(--border));
+}
+
+.badge-accent {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+}
+
+/* ---------- tables: wide tables scroll sideways in their own box ---------- */
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.table th {
+  color: var(--text-2);
+  font-weight: 600;
+  font-size: 0.8rem;
+  background: var(--bg);
+}
+
+.table tr:last-child td {
+  border-bottom: 0;
+}
+
+.link-box {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.link-box .input {
+  flex: 1 1 260px;
+  font-family: var(--font-num);
+  font-size: 0.85rem;
+}
