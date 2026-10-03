@@ -5,8 +5,9 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/api': 'http://127.0.0.1:8000',
-      '/ws': { target: 'ws://127.0.0.1:8000', ws: true },
+      // Keep the browser's Host header: the backend refuses changes whose Origin differs from it.
+      '/api': { target: 'http://127.0.0.1:8000', changeOrigin: false },
+      '/ws': { target: 'ws://127.0.0.1:8000', ws: true, changeOrigin: false },
     },
   },
 })

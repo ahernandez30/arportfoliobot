@@ -16,8 +16,8 @@ function LinkResult({ link, label, onClose }: { link: string; label: string; onC
     }
   }
   return (
-    <div className="msg msg-ok">
-      <p style={{ margin: '0 0 8px' }}>{label} Send it yourself by text or email. It is shown only now and works once.</p>
+    <div className="msg msg-ok link-result">
+      <p>✓ {label} Send it yourself by text or email. It is shown only now and works once.</p>
       <div className="link-box">
         <input className="input" readOnly value={link} onFocus={(e) => e.target.select()} />
         <button className="btn" type="button" onClick={copy}>

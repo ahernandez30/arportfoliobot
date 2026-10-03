@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { Navigate, NavLink, useParams } from 'react-router'
 import { useMe } from '../auth'
 import KeysSection from './KeysSection'
@@ -20,13 +21,18 @@ const SECTIONS = [
 export default function ConfigPage() {
   const { section = 'profile' } = useParams()
   const me = useMe()
+  const tabsRef = useRef<HTMLElement>(null)
+  // On a phone the tabs scroll sideways: keep the open one in view.
+  useEffect(() => {
+    tabsRef.current?.querySelector('a.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [section])
   const visible = SECTIONS.filter((s) => !s.adminOnly || me.role === 'admin')
   if (!visible.some((s) => s.id === section)) return <Navigate to="/config/profile" replace />
 
   return (
     <section className="page">
       <h1 className="page-title">Config</h1>
-      <nav className="config-tabs" aria-label="Config sections">
+      <nav className="config-tabs" aria-label="Config sections" ref={tabsRef}>
         {visible.map((s) => (
           <NavLink key={s.id} to={`/config/${s.id}`} className={({ isActive }) => (isActive ? 'active' : '')}>
             {s.label}
