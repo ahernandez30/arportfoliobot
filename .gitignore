@@ -1,0 +1,25 @@
+# Secrets and data — never commit
+.env
+.env.*
+*.env
+*.pem
+*.key
+*.dump
+*.sql
+*.sql.gz
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Node / build
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Editors / OS
+.DS_Store
+.vscode/
+.idea/

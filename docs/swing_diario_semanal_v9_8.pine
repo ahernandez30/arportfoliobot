@@ -1,0 +1,1072 @@
+//@version=5
+// ============================================================================
+//  SWING — Vela Diaria / Semanal      ·   Alex + Claude · 2026-09-29 (v9.8 · + PRUEBA DE AZAR: señal vs solo largos / solo cortos / moneda / momento al azar, con t-stat · + DURACIÓN media de cada trade en todos los modos)
+//  v9.7: MODO BASKET (acumula señales del mismo lado y cierra la cesta junta, TP/SL sobre el promedio)
+//
+//  v7: ESCALERA multi-timeframe. Solo pasan las señales a favor de TODOS los niveles
+//      de sesgo superior activos (hasta 3 TFs, ej 60/D/W). Cada nivel usa la misma
+//      señal de vela con umbrales weekly validados, sin repintado. Si un nivel
+//      discrepa (MIXTO), no se opera. Pensada para ejecución en vivo — el backtest
+//      en TFs bajos (5m/1h) es de muestra corta por lo que TradingView carga.
+//
+//  La MISMA señal de velas, pero para SWING: un trade por vela (día o semana).
+//  Cada vela del grafico se lee con SU PROPIO umbral (independientes entre si):
+//    · LLENA (cuerpo >= X%)          -> a favor del color (verde=alcista, roja=bajista)
+//    · FLECO (mecha >= Y%)           -> reversa por la mecha (abajo=compra, arriba=venta),
+//                                        salvo que cierre rompiendo el min/max anterior
+//    · ENGULFING (color opuesto y cuerpo mayor que la anterior; cuerpo min Z% opcional,
+//                 0 = no importa el tamaño) -> sigue su color
+//  Prioridad si una vela cae en varios tipos: ENGULFING > FLECO > LLENA
+//
+//  Backtest: desde el CIERRE de la señal, ¿toca +OBJETIVO% antes que -STOP% en
+//  N velas? Mide por TIPO. Y en cada señal apunta el GAP de la vela siguiente
+//  (y cuántas ganaron gracias al gap: el open ya llego al objetivo).
+//
+//  Ponlo en el grafico DIARIO o SEMANAL (cambia el TF del chart para testear cada uno).
+// ============================================================================
+indicator("Swing — Vela Diaria/Semanal v9.8", overlay=true, max_labels_count=500, max_lines_count=500)
+
+VER = "v9.8"   // versión: se muestra en el cuadro de resultados
+
+cuerpoLlena  = input.float(85, "LLENA: cuerpo >= % del rango", minval=1, maxval=100, group="Señal")
+mechaFleco   = input.float(65, "FLECO: mecha >= % del rango", minval=1, maxval=100, group="Señal")
+cuerpoMinFleco = input.float(4, "FLECO: cuerpo minimo >= % (0 = usar todas, incluso doji de cuerpo chico)", minval=0, maxval=90, group="Señal")
+cuerpoEngulf = input.float(61, "ENGULFING: cuerpo minimo >= % (0 = no importa el tamaño)", minval=0, maxval=100, group="Señal")
+verLlena  = input.bool(true, "Mostrar LLENA (a favor)", group="Señal")
+verFleco  = input.bool(true, "Mostrar FLECO (reversa)", group="Señal")
+verEngulf = input.bool(true, "Mostrar ENGULFING", group="Señal")
+noEngPrimera = input.bool(false, "NO señalar ENGULFING en la primera vela de la sesión (evita el gap overnight)", group="Señal")
+verFlechas  = input.bool(true, "Ver FLECHAS (triángulos limpios)", group="Señal")
+verCarteles = input.bool(true, "Ver CARTELES (etiqueta con cuerpo/mecha y gap)", group="Señal")
+verFallos   = input.bool(false, "Marcar con ✗ las señales que FALLARON (perdieron)", group="Señal")
+verTPSL     = input.bool(false, "Ver rayas de TP/SL de la posición VIVA (en marcos chicos aprietan la escala)", group="Señal")
+verSalidas  = input.bool(true, "Ver dónde CERRÓ cada trade en la historia (TP / SL / corte)", group="Señal")
+verGap      = input.bool(false, "Ver etiqueta de GAP", group="Señal")
+
+// ------------------------------ FILTROS (para testear) ----------------------
+// Media Móvil: 3 cajas (50/100/200 por defecto, cambiables) y eliges cuál usar de
+// filtro de tendencia — solo COMPRA por encima de la MA, solo VENTA por debajo.
+maCual  = input.string("Ninguna", "Filtro Media Móvil — usar cuál", options=["Ninguna", "MA1", "MA2", "MA3"], group="Filtros")
+maLen1  = input.int(50,  "MA1 período", minval=1, group="Filtros")
+maLen2  = input.int(100, "MA2 período", minval=1, group="Filtros")
+maLen3  = input.int(200, "MA3 período", minval=1, group="Filtros")
+// ADX: filtro de fuerza de tendencia. Elige operar cuando el ADX esté por encima
+// (tendencia) o por debajo (rango) del umbral.
+usarADX   = input.bool(false, "Filtro ADX", group="Filtros")
+adxCond   = input.string("mayor", "ADX — operar cuando sea", options=["mayor", "menor"], group="Filtros")
+adxUmbral = input.float(25, "ADX umbral", minval=0, group="Filtros")
+adxLen    = input.int(14, "ADX período", minval=1, group="Filtros")
+
+objPct   = input.float(15, "Backtest: OBJETIVO % (a favor)", minval=0.1, group="Backtest")
+stopPct  = input.float(13, "Backtest: STOP % (en contra)", minval=0.1, group="Backtest")
+maxVelas = input.int(13, "Backtest: velas hasta cerrar a mercado / flotar", minval=1, group="Backtest")
+unaVez   = input.bool(false, "UNA A LA VEZ: no abrir otra posición hasta cerrar la anterior", group="Backtest")
+maxTradesSesion = input.int(0, "Máx. trades por sesión/día (0 = sin límite)", minval=0, group="Backtest")
+cierraMercado = input.bool(true, "Cerrar a mercado a las N velas (si no, dejar flotando)", group="Backtest")
+usarIntra = input.bool(true,  "Camino real: mirar DENTRO de la vela para el orden real", group="Backtest")
+tfIntra   = input.timeframe("60", "  · temporalidad del camino (ej: 1D en semanal, 60 en diario)", group="Backtest")
+modoSenal = input.bool(false, "SEÑAL A SEÑAL: mantiene la posición y solo cambia de lado en señal OPUESTA (buy↔sell)", group="Backtest")
+tpPctSS  = input.float(0, "  · señal a señal: TAKE PROFIT en % (0 = sin TP, solo señal opuesta)", minval=0, group="Backtest")
+slPctSS  = input.float(0, "  · señal a señal: STOP LOSS en % (0 = sin SL, solo señal opuesta)", minval=0, group="Backtest")
+modoCesta = input.bool(false, "  · BASKET: acumula señales del MISMO lado y cierra toda la cesta junta (TP/SL sobre el promedio)", group="Backtest")
+maxCesta  = input.int(5, "  · BASKET: máximo de entradas en la cesta (0 = sin tope)", minval=0, group="Backtest")
+verCierresSS = input.bool(true, "  · señal a señal: marcar cada cierre en el gráfico (TP / SL / SIG + %)", group="Backtest")
+horaCierreSS = input.string("", "  · señal a señal: cerrar la posición SÍ O SÍ a esta hora (HH:MM ET; vacío = no)", group="Backtest")
+verRes   = input.bool(true, "Mostrar cuadro de resultados", group="Backtest")
+
+// --- ESCALERA de sesgos de timeframes superiores ---
+// El chart opera en el TF que elijas; solo pasan las señales que van A FAVOR de
+// TODOS los niveles de sesgo que actives. Cada nivel es la última señal de ese TF
+// superior, persistente hasta que voltee. Si un nivel discrepa, no se opera.
+// Ej: chart en 5min con niveles 60/D/W → entras solo cuando hora, diario y semanal
+// apuntan igual que la señal. Todos usan los umbrales weekly validados.
+usarEscalera = input.bool(false, "ESCALERA: solo señales a favor de los sesgos de arriba", group="Escalera de sesgos")
+filtro1 = input.bool(true,  "  · nivel 1 activo", inline="n1", group="Escalera de sesgos")
+tfS1    = input.timeframe("W", "TF", inline="n1", group="Escalera de sesgos")
+filtro2 = input.bool(false, "  · nivel 2 activo", inline="n2", group="Escalera de sesgos")
+tfS2    = input.timeframe("D", "TF", inline="n2", group="Escalera de sesgos")
+filtro3 = input.bool(false, "  · nivel 3 activo", inline="n3", group="Escalera de sesgos")
+tfS3    = input.timeframe("60", "TF", inline="n3", group="Escalera de sesgos")
+cuerpoLlenaW    = input.float(85, "  · LLENA: cuerpo >= %", minval=1, maxval=100, group="Escalera de sesgos")
+mechaFlecoW     = input.float(65, "  · FLECO: mecha >= %", minval=1, maxval=100, group="Escalera de sesgos")
+cuerpoMinFlecoW = input.float(4,  "  · FLECO: cuerpo minimo >= %", minval=0, maxval=90, group="Escalera de sesgos")
+cuerpoEngulfW   = input.float(61, "  · ENGULFING: cuerpo minimo >= %", minval=0, maxval=100, group="Escalera de sesgos")
+verSesgo        = input.bool(true,  "  · pintar el fondo cuando la escalera esta alineada", group="Escalera de sesgos")
+verBloqueadas   = input.bool(false, "  · marcar con X las señales BLOQUEADAS", group="Escalera de sesgos")
+
+// --- Filtro de CONTINUACIÓN (mismo TF del chart) ---
+// Solo pasan las señales que van en la MISMA dirección que la última señal previa
+// del propio chart. Bloquea las reversiones (la primera señal contraria se veta y
+// "arma" el cambio; la siguiente en la nueva dirección ya pasa). Es momentum puro,
+// independiente de la escalera — puedes medirlo solo o combinarlo.
+usarContinua = input.bool(false, "CONTINUACIÓN: solo señales que siguen a la última del mismo TF", group="Continuación")
+
+// --- PRUEBA DE AZAR: ¿la señal gana por habilidad o por suerte? ---
+// Reabre CADA señal en sombra 3 veces con la MISMA regla fija (OBJ/STOP/N velas,
+// camino real): en su dirección, forzada LARGA y forzada CORTA. Y además abre un
+// largo y un corto en CUALQUIER vela (momento al azar). Compara y da t-stat.
+verAzar = input.bool(true, "Mostrar cuadro PRUEBA DE AZAR", group="Prueba de azar")
+posAzar = input.string("Centro izquierda", "  · posición del cuadro", options=["Centro izquierda", "Centro derecha", "Arriba izquierda", "Arriba centro"], group="Prueba de azar")
+
+cVerde = input.color(color.lime, "Alcista", group="Colores")
+cRoja  = input.color(color.red,  "Bajista", group="Colores")
+
+// --- Franja de apertura del mercado (9:30–11:00 ET) ---
+verApertura = input.bool(true, "Marcar la franja de apertura", group="Apertura")
+soloApertura = input.bool(false, "SOLO señales DENTRO de la franja (ignora el resto del día)", group="Apertura")
+sesApertura = input.session("0930-1100", "  · horario", group="Apertura")
+colApertura = input.color(color.new(color.white, 88), "  · color de la franja", group="Apertura")
+tzApertura  = input.string("America/New_York", "  · zona horaria", group="Apertura")
+
+// ------------------------------- La señal -----------------------------------
+rng     = high - low
+cuerpo  = math.abs(close - open)
+relleno = rng > 0 ? cuerpo / rng * 100.0 : 0.0
+mSup    = rng > 0 ? (high - math.max(open, close)) / rng * 100.0 : 0.0
+mInf    = rng > 0 ? (math.min(open, close) - low) / rng * 100.0 : 0.0
+mMax    = math.max(mSup, mInf)
+verde   = close >= open
+apVerde = close[1] >= open[1]
+cuerpo1 = math.abs(close[1] - open[1])
+
+// Cada tipo mira SOLO su propio umbral — cambiar uno no toca a los otros.
+// primera vela de la sesión regular (9:30 ET): el engulfing ahí compararía con el
+// cierre anterior (gap overnight), no es real. Detección robusta por HORA ET + cambio
+// de día (funciona con o sin pre-market, en cualquier feed con hora correcta).
+_minET = hour(time, tzApertura) * 60 + minute(time, tzApertura)
+_diaET = year(time, tzApertura) * 10000 + month(time, tzApertura) * 100 + dayofmonth(time, tzApertura)
+_esReg = _minET >= 570 and _minET < 960        // 9:30 a 16:00 ET
+var int _diaMarcado = 0
+primeraSesion = false
+if _esReg and _diaET != _diaMarcado
+    primeraSesion := true
+    _diaMarcado := _diaET
+// hora de cierre forzado del señal-a-señal (HH:MM ET). Marca la 1a barra del día en/tras esa hora
+_hcParts = str.split(horaCierreSS, ":")
+_hcOn = array.size(_hcParts) == 2
+_hcH = _hcOn ? str.tonumber(array.get(_hcParts, 0)) : na
+_hcM = _hcOn ? str.tonumber(array.get(_hcParts, 1)) : na
+_hcMin = (_hcOn and not na(_hcH) and not na(_hcM)) ? _hcH * 60 + _hcM : na
+var int _hcDia = 0
+horaCierreHit = false
+if not na(_hcMin) and _minET >= _hcMin and _diaET != _hcDia
+    horaCierreHit := true
+    _hcDia := _diaET
+esLlena = relleno >= cuerpoLlena
+esEng   = (verde != apVerde) and cuerpo > cuerpo1 and relleno >= cuerpoEngulf
+esFleco = mMax >= mechaFleco and relleno >= cuerpoMinFleco
+
+// direccion + tipo (0 LLENA, 1 FLECO, 2 ENGULFING). Prioridad ENGULFING > FLECO > LLENA
+_engBloq = noEngPrimera and primeraSesion    // suprime SOLO la señal de engulfing en la 1a vela
+dLlUp = esLlena and not esEng and not esFleco and verde
+dLlDn = esLlena and not esEng and not esFleco and not verde
+dEnUp = esEng and verde and not _engBloq
+dEnDn = esEng and not verde and not _engBloq
+dFlUp = esFleco and not esEng and mInf > mSup and close >= low[1]      // rechazo abajo -> compra, si aguanta
+dFlDn = esFleco and not esEng and mSup >= mInf and close <= high[1]     // rechazo arriba -> venta, si aguanta
+
+// PREVIEW EN VIVO (Alex, v9.2): antes iba `conf = barstate.isconfirmed` delante,
+// así la señal SOLO salía con la vela cerrada. Ahora se pinta también en la vela EN
+// CURSO (aparece/desaparece según va cumpliendo) y al CERRAR queda firme solo si
+// cumplió. `conf` solo afecta a la vela viva, así que el backtest histórico NO cambia
+// (todas las velas pasadas siguen evaluándose a su cierre). Repinta la vela viva a
+// propósito: es un anticipo.
+sigUpRaw = (verLlena and dLlUp) or (verEngulf and dEnUp) or (verFleco and dFlUp)
+sigDnRaw = (verLlena and dLlDn) or (verEngulf and dEnDn) or (verFleco and dFlDn)
+tipoSig = (dEnUp or dEnDn) ? 2 : ((dFlUp or dFlDn) ? 1 : 0)
+
+// ---------------------- Sesgo del timeframe mayor (semanal) -----------------
+// La MISMA lógica de señal, pero calculada con umbrales propios (los weekly) para
+// leer la dirección semanal. Usa siempre los tres tipos (así se validó la weekly).
+f_sig(cLl, mFl, cMinFl, cEng) =>
+    _rng = high - low
+    _cu  = math.abs(close - open)
+    _rel = _rng > 0 ? _cu / _rng * 100.0 : 0.0
+    _mS  = _rng > 0 ? (high - math.max(open, close)) / _rng * 100.0 : 0.0
+    _mI  = _rng > 0 ? (math.min(open, close) - low) / _rng * 100.0 : 0.0
+    _mM  = math.max(_mS, _mI)
+    _v   = close >= open
+    _apV = close[1] >= open[1]
+    _cu1 = math.abs(close[1] - open[1])
+    _esLl = _rel >= cLl
+    _esEn = (_v != _apV) and _cu > _cu1 and _rel >= cEng
+    _esFl = _mM >= mFl and _rel >= cMinFl
+    _up = (_esLl and not _esEn and not _esFl and _v) or (_esEn and _v) or (_esFl and not _esEn and _mI > _mS and close >= low[1])
+    _dn = (_esLl and not _esEn and not _esFl and not _v) or (_esEn and not _v) or (_esFl and not _esEn and _mS >= _mI and close <= high[1])
+    [_up, _dn]
+
+// flecha del estado de un nivel de la escalera (para la caja): apagado, arriba, abajo o neutro
+f_arw(a, s) => not a ? "·" : (s == 1 ? "▲" : (s == -1 ? "▼" : "="))
+
+// SIN REPINTADO (patrón canónico de Pine): [1] + lookahead_on pide la señal de la
+// barra YA CERRADA de cada TF superior. Queda fija y es idéntica en histórico y en
+// vivo — nunca ve el futuro ni cambia dentro de la barra en curso.
+[wUpRaw, wDnRaw] = f_sig(cuerpoLlenaW, mechaFlecoW, cuerpoMinFlecoW, cuerpoEngulfW)
+
+// --- tres niveles de la escalera (cada uno un TF superior) ---
+[u1, d1] = request.security(syminfo.tickerid, tfS1, [wUpRaw[1], wDnRaw[1]], lookahead=barmerge.lookahead_on)
+[u2, d2] = request.security(syminfo.tickerid, tfS2, [wUpRaw[1], wDnRaw[1]], lookahead=barmerge.lookahead_on)
+[u3, d3] = request.security(syminfo.tickerid, tfS3, [wUpRaw[1], wDnRaw[1]], lookahead=barmerge.lookahead_on)
+
+// cada sesgo es PERSISTENTE: se mantiene en el último hasta que su TF lo voltee
+var int s1 = 0
+var int s2 = 0
+var int s3 = 0
+if u1
+    s1 := 1
+if d1
+    s1 := -1
+if u2
+    s2 := 1
+if d2
+    s2 := -1
+if u3
+    s3 := 1
+if d3
+    s3 := -1
+
+// un nivel aprueba una dirección si no está activo, o si su sesgo no la contradice.
+// sesgo == 0 (arranque, aún sin señal en ese TF) deja pasar ambas.
+// SOLO cuenta si su TF es ESTRICTAMENTE MAYOR que el del chart: un sesgo "superior"
+// que no es superior (ej W sobre un chart W) se ignora — si no, el [1] lo convertiría
+// en un filtro de continuación de la barra anterior, no en un filtro de TF mayor.
+chSecEsc = timeframe.in_seconds(timeframe.period)
+a1 = usarEscalera and filtro1 and timeframe.in_seconds(tfS1) > chSecEsc
+a2 = usarEscalera and filtro2 and timeframe.in_seconds(tfS2) > chSecEsc
+a3 = usarEscalera and filtro3 and timeframe.in_seconds(tfS3) > chSecEsc
+permUp = (not a1 or s1 >= 0) and (not a2 or s2 >= 0) and (not a3 or s3 >= 0)
+permDn = (not a1 or s1 <= 0) and (not a2 or s2 <= 0) and (not a3 or s3 <= 0)
+
+// --- filtro de CONTINUACIÓN: dirección de la última señal del propio chart ---
+// se evalúa ANTES de actualizar el estado, así compara con la señal previa, no consigo
+// misma. El estado sigue la señal CRUDA (una reversión bloqueada igual arma el cambio).
+var int ultDir = 0
+contUp = not usarContinua or ultDir >= 0
+contDn = not usarContinua or ultDir <= 0
+if sigUpRaw
+    ultDir := 1
+if sigDnRaw
+    ultDir := -1
+
+// --- FILTROS Media Móvil + ADX (opcionales, para testear) ---
+_ma1 = ta.sma(close, maLen1)
+_ma2 = ta.sma(close, maLen2)
+_ma3 = ta.sma(close, maLen3)
+maUsada = maCual == "MA1" ? _ma1 : (maCual == "MA2" ? _ma2 : (maCual == "MA3" ? _ma3 : na))
+usarMA = maCual != "Ninguna"
+maUp = not usarMA or (not na(maUsada) and close > maUsada)   // COMPRA solo por encima de la MA
+maDn = not usarMA or (not na(maUsada) and close < maUsada)   // VENTA solo por debajo de la MA
+[_dip, _dim, _adx] = ta.dmi(adxLen, adxLen)
+adxOk = not usarADX or (adxCond == "mayor" ? _adx > adxUmbral : _adx < adxUmbral)
+
+sigUp = sigUpRaw and permUp and contUp and maUp and adxOk
+sigDn = sigDnRaw and permDn and contDn and maDn and adxOk
+bloqUp = sigUpRaw and not (permUp and contUp and maUp and adxOk)
+bloqDn = sigDnRaw and not (permDn and contDn and maDn and adxOk)
+plot(usarMA ? maUsada : na, "MA filtro", color=color.new(color.yellow, 0), linewidth=1)
+
+// --- UNA A LA VEZ: con el toggle activo, no se abre (ni se marca) otra señal
+// mientras haya una posición abierta. hayPos se actualiza al final del backtest.
+// --- SOLO APERTURA: si el toggle está activo, solo se abren señales dentro de la franja.
+// --- MÁX TRADES/SESIÓN: cuenta aperturas por día; al llegar al límite, no abre más.
+var bool hayPos = false
+var int tradesSesion = 0
+if timeframe.change("D")
+    tradesSesion := 0
+enApertura = not na(time(timeframe.period, sesApertura, tzApertura))
+okApertura = not soloApertura or enApertura
+okSesion = maxTradesSesion == 0 or tradesSesion < maxTradesSesion
+puedeAbrir = (modoSenal or not unaVez or not hayPos) and okApertura and okSesion
+sigUpV = sigUp and puedeAbrir
+sigDnV = sigDn and puedeAbrir
+if sigUpV or sigDnV
+    tradesSesion := tradesSesion + 1
+
+// estado combinado de la escalera para la caja y el fondo
+escAlinUp = usarEscalera and permUp and not permDn   // todos los niveles activos: COMPRA
+escAlinDn = usarEscalera and permDn and not permUp   // todos: VENTA
+escMixto  = usarEscalera and not permUp and not permDn // discrepan → no se opera
+
+// ------------------------------- Flechas + etiqueta -------------------------
+// franja de la apertura del mercado (9:30–11:00 ET), solo en TFs intradía
+bgcolor(verApertura and enApertura ? colApertura : na, title="Franja de apertura")
+// fondo tenue cuando la escalera está alineada (verde=compra, rojo=venta, nada=mixto)
+bgcolor(verSesgo and escAlinUp ? color.new(cVerde, 92) : (verSesgo and escAlinDn ? color.new(cRoja, 92) : na), title="Escalera alineada")
+// señales diarias que existían pero el sesgo semanal vetó (X gris)
+plotshape(verBloqueadas and bloqUp, "Bloqueada alcista", shape.xcross, location.belowbar, color.new(color.gray, 0), size=size.tiny)
+plotshape(verBloqueadas and bloqDn, "Bloqueada bajista", shape.xcross, location.abovebar, color.new(color.gray, 0), size=size.tiny)
+plotshape(verFlechas and sigUpV, "Señal alcista", shape.triangleup,   location.belowbar, cVerde, size=size.small)
+plotshape(verFlechas and sigDnV, "Señal bajista", shape.triangledown, location.abovebar, cRoja,  size=size.small)
+if verCarteles and (sigUpV or sigDnV)
+    tnom = tipoSig == 2 ? "ENGULFING" : (tipoSig == 1 ? "FLECO" : "LLENA")
+    dtxt = sigUpV ? "▲" : "▼"
+    col  = sigUpV ? cVerde : cRoja
+    txt  = tnom + " " + dtxt + "\ncuerpo " + str.tostring(relleno, "#") + "% · mecha " + str.tostring(mMax, "#") + "%"
+    label.new(bar_index, sigUpV ? low : high, txt, yloc = sigUpV ? yloc.belowbar : yloc.abovebar, style = sigUpV ? label.style_label_up : label.style_label_down, color = col, textcolor = color.white, size = size.small)
+
+// gap de la vela SIGUIENTE (open de hoy vs cierre de la señal de ayer)
+huboSig = sigUpV[1] or sigDnV[1]
+if verGap and huboSig
+    dprev = sigUpV[1] ? 1 : -1
+    eprev = close[1]
+    gp = eprev > 0 ? (open - eprev) / eprev * 100.0 * dprev : 0.0
+    label.new(bar_index, open, "gap " + (gp >= 0 ? "+" : "") + str.tostring(gp, "#.##") + "%",
+              yloc = yloc.price, style = label.style_label_left,
+              color = gp >= 0 ? color.new(cVerde, 40) : color.new(cRoja, 40), textcolor = color.white, size = size.tiny)
+
+// ------------------------------- Backtest por tipo + gap --------------------
+// Camino real: velas de temporalidad menor DENTRO de cada vela del chart, en orden.
+// Para saber si el precio toco antes el objetivo o el stop, en vez de adivinar con
+// el OHLC de la vela grande. Si no hay datos intrabar (historia vieja), cae al OHLC.
+// A PRUEBA DE FALLOS: security_lower_tf exige un TF menor o igual al del chart. Si el
+// camino real esta en un TF mayor (ej chart 5m con camino 60m), no lo pedimos —
+// caemos al OHLC en vez de reventar. intraOk decide si el camino real esta activo.
+chartSec = timeframe.in_seconds(timeframe.period)
+intraSec = timeframe.in_seconds(tfIntra)
+intraOk  = usarIntra and intraSec <= chartSec
+tfIntraSafe = intraOk ? tfIntra : timeframe.period
+aIHi = request.security_lower_tf(syminfo.tickerid, tfIntraSafe, high)
+aILo = request.security_lower_tf(syminfo.tickerid, tfIntraSafe, low)
+var array<float> tEntry = array.new_float()
+var array<int>   tDir   = array.new_int()
+var array<int>   tBar   = array.new_int()
+var array<int>   tTipo  = array.new_int()
+var array<int>   tYear  = array.new_int()   // año de entrada de cada trade abierto
+var array<int>   tTime  = array.new_int()   // timestamp (ms) de entrada, para los dias
+var array<float> dWsum = array.new_float(3, 0.0)  // suma de dias hasta GANAR (tocar objetivo/cerrar verde)
+var array<int>   dWn   = array.new_int(3, 0)      // cuantos ganados con dias medidos
+var array<float> dLsum = array.new_float(3, 0.0)  // suma de dias hasta PERDER (tocar stop/cerrar rojo)
+var array<int>   dLn   = array.new_int(3, 0)      // cuantos perdidos con dias medidos
+var array<int>   yW = array.new_int(60, 0)  // ganadas por año (indice = año - 2000)
+var array<int>   yL = array.new_int(60, 0)  // perdidas por año
+var array<int>   nW = array.new_int(3, 0)
+var array<int>   nL = array.new_int(3, 0)
+var array<int>   nF = array.new_int(3, 0)
+var array<float> sF = array.new_float(3, 0.0)
+var array<float> rS = array.new_float(3, 0.0)   // suma del % realizado por operacion (R real)
+var array<float> gS = array.new_float(3, 0.0)   // suma del gap
+var array<int>   gN = array.new_int(3, 0)       // cuantos con gap medido
+var array<int>   gW = array.new_int(3, 0)       // objetivo alcanzado en el gap
+var int rachaW = 0   // racha actual de ganadas seguidas
+var int rachaL = 0   // racha actual de perdidas seguidas
+var int maxRW  = 0   // maxima racha de ganadas seguidas
+var int nCamino = 0  // trades resueltos con camino real intrabar (vs OHLC de la vela)
+var int maxRL  = 0   // maxima racha de perdidas seguidas
+var float sigEntry = na   // señal a señal: precio de entrada del trade abierto
+var int   sigDir   = 0    // direccion del trade abierto (1 largo, -1 corto)
+var int   sigTipo  = 0    // tipo del trade abierto (0 LLENA, 1 FLECO, 2 ENGULF)
+var int   sigYear  = 0    // año de entrada del trade abierto (señal a señal)
+var int   cstDir   = 0    // BASKET: dirección de la cesta abierta (0 plana, 1 largo, -1 corto)
+var float cstSum   = 0.0  // BASKET: suma de precios de entrada (promedio = cstSum/cstN)
+var int   cstN     = 0    // BASKET: cuántas entradas hay en la cesta
+var int   cstTipo  = 0    // BASKET: tipo de la PRIMERA entrada (para contabilizar la cesta)
+var int   cstYear  = 0    // BASKET: año de apertura de la cesta
+var int   sigBarE  = 0    // señal a señal: barra de entrada (para la duración)
+var int   sigTimeE = 0    // señal a señal: hora de entrada (ms)
+var int   cstBarE  = 0    // BASKET: barra de la 1a entrada
+var int   cstTimeE = 0    // BASKET: hora de la 1a entrada (ms)
+var int   durN     = 0    // DURACIÓN: trades cerrados con duración medida (todos los modos, sin flotantes)
+var float durBars  = 0.0  // DURACIÓN: suma de velas en posición
+var float durDias  = 0.0  // DURACIÓN: suma de días de calendario en posición
+o = objPct / 100.0
+st = stopPct / 100.0
+if not modoSenal and array.size(tEntry) > 0
+    i = array.size(tEntry) - 1
+    while i >= 0
+        e = array.get(tEntry, i)
+        d = array.get(tDir, i)
+        b = array.get(tBar, i)
+        tp = array.get(tTipo, i)
+        tgt = d == 1 ? e * (1 + o) : e * (1 - o)
+        stp = d == 1 ? e * (1 - st) : e * (1 + st)
+        // gap: en la 1a vela despues de la entrada
+        if bar_index == b + 1
+            gp = (open - e) / e * 100.0 * d
+            array.set(gS, tp, array.get(gS, tp) + gp)
+            array.set(gN, tp, array.get(gN, tp) + 1)
+            if (d == 1 and open >= tgt) or (d == -1 and open <= tgt)
+                array.set(gW, tp, array.get(gW, tp) + 1)
+        res = false
+        resW = 0
+        _motivo = ""
+        if bar_index > b
+            // ¿toco antes el objetivo o el stop? Con CAMINO REAL recorremos las
+            // velas menores en orden (el martes antes que el viernes). Sin datos
+            // intrabar, caemos al OHLC de la vela con STOP antes que objetivo.
+            usoIntra = intraOk and array.size(aIHi) > 0
+            hit = 0
+            if usoIntra
+                nsub = array.size(aIHi)
+                for j = 0 to nsub - 1
+                    if hit == 0
+                        ihi = array.get(aIHi, j)
+                        ilo = array.get(aILo, j)
+                        if d == 1
+                            hit := ilo <= stp ? -1 : (ihi >= tgt ? 1 : 0)
+                        else
+                            hit := ihi >= stp ? -1 : (ilo <= tgt ? 1 : 0)
+            else
+                if d == 1
+                    hit := open >= tgt ? 1 : (open <= stp ? -1 : (low <= stp ? -1 : (high >= tgt ? 1 : 0)))
+                else
+                    hit := open <= tgt ? 1 : (open >= stp ? -1 : (high >= stp ? -1 : (low <= tgt ? 1 : 0)))
+            if hit == 1
+                array.set(nW, tp, array.get(nW, tp) + 1)
+                array.set(rS, tp, array.get(rS, tp) + objPct)
+                resW := 1
+                res := true
+                _motivo := "TP"
+                nCamino := usoIntra ? nCamino + 1 : nCamino
+            else if hit == -1
+                array.set(nL, tp, array.get(nL, tp) + 1)
+                array.set(rS, tp, array.get(rS, tp) - stopPct)
+                resW := -1
+                res := true
+                _motivo := "SL"
+                nCamino := usoIntra ? nCamino + 1 : nCamino
+            if not res and (bar_index - b) >= maxVelas
+                mov = d == 1 ? (close - e) / e * 100.0 : (e - close) / e * 100.0
+                if cierraMercado
+                    // cierre a mercado: si esta en verde GANA, si esta en rojo PIERDE
+                    // y el % realizado es lo que salio (mov), no +obj
+                    if mov >= 0
+                        array.set(nW, tp, array.get(nW, tp) + 1)
+                        resW := 1
+                    else
+                        array.set(nL, tp, array.get(nL, tp) + 1)
+                        resW := -1
+                    array.set(rS, tp, array.get(rS, tp) + mov)
+                    _motivo := "corte"
+                else
+                    array.set(nF, tp, array.get(nF, tp) + 1)
+                    array.set(sF, tp, array.get(sF, tp) + mov)
+                    _motivo := "flot"
+                res := true
+        if res
+            yr = array.get(tYear, i) - 2000
+            // dias de calendario desde la señal hasta que se resolvio (toco obj/stop o cerro)
+            dias = (time - array.get(tTime, i)) / 86400000.0
+            bEnt = array.get(tBar, i)   // barra donde fue la señal (para marcar el fallo)
+            dEnt = array.get(tDir, i)   // dirección de esa señal
+            array.remove(tEntry, i)
+            array.remove(tDir, i)
+            array.remove(tBar, i)
+            array.remove(tTipo, i)
+            array.remove(tYear, i)
+            array.remove(tTime, i)
+            // rachas seguidas (en orden de cierre): gana suma a la de ganadas y
+            // resetea la de perdidas, y al reves; los flotantes no cuentan
+            if resW != 0
+                durN    := durN + 1
+                durBars := durBars + (bar_index - bEnt)
+                durDias := durDias + dias
+            if resW == 1
+                rachaW := rachaW + 1
+                rachaL := 0
+                maxRW := math.max(maxRW, rachaW)
+                array.set(dWsum, tp, array.get(dWsum, tp) + dias)
+                array.set(dWn, tp, array.get(dWn, tp) + 1)
+                if yr >= 0 and yr < 60
+                    array.set(yW, yr, array.get(yW, yr) + 1)
+            else if resW == -1
+                rachaL := rachaL + 1
+                rachaW := 0
+                maxRL := math.max(maxRL, rachaL)
+                array.set(dLsum, tp, array.get(dLsum, tp) + dias)
+                array.set(dLn, tp, array.get(dLn, tp) + 1)
+                if yr >= 0 and yr < 60
+                    array.set(yL, yr, array.get(yL, yr) + 1)
+                // marca ✗ roja sobre la señal que falló (lado opuesto a la flecha)
+                if verFallos
+                    label.new(bEnt, na, "✗", yloc = dEnt == 1 ? yloc.abovebar : yloc.belowbar, style = dEnt == 1 ? label.style_label_down : label.style_label_up, color = color.new(color.red, 15), textcolor = color.white, size = size.tiny)
+            // ETIQUETA DE SALIDA (historia): dónde y por qué cerró cada trade —
+            // TP (verde), SL (rojo), corte por velas (ámbar), flotante (gris). Va en la
+            // vela del cierre, a su precio, así que NO comprime el gráfico.
+            if verSalidas
+                _cs = _motivo == "TP" ? color.new(cVerde, 0) : (_motivo == "SL" ? color.new(cRoja, 0) : (_motivo == "corte" ? color.new(color.orange, 0) : color.new(color.gray, 20)))
+                label.new(bar_index, close, _motivo, yloc = yloc.price, style = label.style_label_left, color = _cs, textcolor = color.white, size = size.tiny)
+        i := i - 1
+if modoSenal and not modoCesta
+    // SEÑAL A SEÑAL: mantiene la posición hasta que (a) aparece la señal OPUESTA, o
+    // (b) el precio toca el TAKE PROFIT o STOP LOSS en $ (si están puestos). Al cortar
+    // por TP/SL queda PLANO y espera: la próxima señal (buy o sell) reabre el tramo.
+    cerroSS = false
+    retSS = 0.0
+    motivoSS = ""
+    // (0) CIERRE POR HORA — sí o sí, tiene prioridad sobre TP/SL y señal
+    if sigDir != 0 and horaCierreHit
+        retSS := sigDir == 1 ? (close - sigEntry) / sigEntry * 100.0 : (sigEntry - close) / sigEntry * 100.0
+        cerroSS := true
+        motivoSS := "HORA"
+    // (a) TP/SL en PORCENTAJE del precio de entrada — intrabar, regla pesimista (si toca
+    // ambos, cuenta el stop). El % es consistente en toda época (a diferencia de $ fijos).
+    if not cerroSS and sigDir != 0 and (tpPctSS > 0 or slPctSS > 0)
+        _tpLargo = sigEntry * (1 + tpPctSS / 100.0)
+        _slLargo = sigEntry * (1 - slPctSS / 100.0)
+        _tpCorto = sigEntry * (1 - tpPctSS / 100.0)
+        _slCorto = sigEntry * (1 + slPctSS / 100.0)
+        if sigDir == 1
+            if slPctSS > 0 and low <= _slLargo
+                retSS := -slPctSS
+                cerroSS := true
+                motivoSS := "SL"
+            else if tpPctSS > 0 and high >= _tpLargo
+                retSS := tpPctSS
+                cerroSS := true
+                motivoSS := "TP"
+        else
+            if slPctSS > 0 and high >= _slCorto
+                retSS := -slPctSS
+                cerroSS := true
+                motivoSS := "SL"
+            else if tpPctSS > 0 and low <= _tpCorto
+                retSS := tpPctSS
+                cerroSS := true
+                motivoSS := "TP"
+    // (b) señal opuesta cierra al close (si no cortó ya por TP/SL)
+    opuesta = (sigUpV or sigDnV) and sigDir != 0 and ((sigUpV ? 1 : -1) != sigDir)
+    if opuesta and not cerroSS
+        retSS := sigDir == 1 ? (close - sigEntry) / sigEntry * 100.0 : (sigEntry - close) / sigEntry * 100.0
+        cerroSS := true
+        motivoSS := "SIG"
+    // contabiliza el tramo cerrado y queda plano
+    if cerroSS
+        array.set(rS, sigTipo, array.get(rS, sigTipo) + retSS)
+        yrS = sigYear - 2000
+        diasSS = (time - sigTimeE) / 86400000.0
+        durN    := durN + 1
+        durBars := durBars + (bar_index - sigBarE)
+        durDias := durDias + diasSS
+        if retSS >= 0
+            array.set(dWsum, sigTipo, array.get(dWsum, sigTipo) + diasSS)
+            array.set(dWn, sigTipo, array.get(dWn, sigTipo) + 1)
+        else
+            array.set(dLsum, sigTipo, array.get(dLsum, sigTipo) + diasSS)
+            array.set(dLn, sigTipo, array.get(dLn, sigTipo) + 1)
+        if retSS >= 0
+            array.set(nW, sigTipo, array.get(nW, sigTipo) + 1)
+            rachaW := rachaW + 1
+            rachaL := 0
+            maxRW := math.max(maxRW, rachaW)
+            if yrS >= 0 and yrS < 60
+                array.set(yW, yrS, array.get(yW, yrS) + 1)
+        else
+            array.set(nL, sigTipo, array.get(nL, sigTipo) + 1)
+            rachaL := rachaL + 1
+            rachaW := 0
+            maxRL := math.max(maxRL, rachaL)
+            if yrS >= 0 and yrS < 60
+                array.set(yL, yrS, array.get(yL, yrS) + 1)
+        if verCierresSS
+            label.new(bar_index, na, motivoSS + " " + (retSS >= 0 ? "+" : "") + str.tostring(retSS, "#.#") + "%", yloc = retSS >= 0 ? yloc.belowbar : yloc.abovebar, color = retSS >= 0 ? color.new(cVerde, 0) : color.new(cRoja, 0), textcolor = color.white, style = retSS >= 0 ? label.style_label_up : label.style_label_down, size = size.small)
+        sigEntry := na
+        sigDir   := 0
+    // abre un tramo nuevo si hay señal y estamos planos — pero NO después de la hora de
+    // cierre forzado (si no, reabriría y quedaría overnight, justo lo que se quiere evitar)
+    _antesDeCierre = na(_hcMin) or _minET < _hcMin
+    if (sigUpV or sigDnV) and sigDir == 0 and _antesDeCierre
+        sigEntry := close
+        sigDir   := sigUpV ? 1 : -1
+        sigTipo  := tipoSig
+        sigYear  := year
+        sigBarE  := bar_index
+        sigTimeE := time
+
+// ============================ MODO BASKET (cesta) ============================
+// Acumula entradas del MISMO lado (hasta maxCesta) y cierra TODA la cesta junta.
+// El TP/SL van sobre el PRECIO PROMEDIO de la cesta. Señal opuesta y la hora de
+// cierre cierran todo. Se contabiliza como UN solo trade, bajo el tipo de la 1a
+// entrada. (Esto es promediar/piramidar — probarlo con datos, cuidado en vivo.)
+if modoSenal and modoCesta
+    cerroC = false
+    retC = 0.0
+    motC = ""
+    _avg = cstN > 0 ? cstSum / cstN : na
+    // (0) hora de cierre — prioridad
+    if cstDir != 0 and horaCierreHit
+        retC := cstDir == 1 ? (close - _avg) / _avg * 100.0 : (_avg - close) / _avg * 100.0
+        cerroC := true
+        motC := "HORA"
+    // (a) TP/SL sobre el PROMEDIO (intrabar, pesimista: si toca ambos, el SL)
+    if not cerroC and cstDir != 0 and (tpPctSS > 0 or slPctSS > 0)
+        _tpL = _avg * (1 + tpPctSS / 100.0)
+        _slL = _avg * (1 - slPctSS / 100.0)
+        _tpC = _avg * (1 - tpPctSS / 100.0)
+        _slC = _avg * (1 + slPctSS / 100.0)
+        if cstDir == 1
+            if slPctSS > 0 and low <= _slL
+                retC := -slPctSS
+                cerroC := true
+                motC := "SL"
+            else if tpPctSS > 0 and high >= _tpL
+                retC := tpPctSS
+                cerroC := true
+                motC := "TP"
+        else
+            if slPctSS > 0 and high >= _slC
+                retC := -slPctSS
+                cerroC := true
+                motC := "SL"
+            else if tpPctSS > 0 and low <= _tpC
+                retC := tpPctSS
+                cerroC := true
+                motC := "TP"
+    // (b) señal opuesta cierra TODA la cesta al close
+    opuestaC = (sigUpV or sigDnV) and cstDir != 0 and ((sigUpV ? 1 : -1) != cstDir)
+    if opuestaC and not cerroC
+        retC := cstDir == 1 ? (close - _avg) / _avg * 100.0 : (_avg - close) / _avg * 100.0
+        cerroC := true
+        motC := "SIG"
+    // contabiliza la cesta cerrada (bajo el tipo de la 1a entrada) y queda plana
+    if cerroC
+        array.set(rS, cstTipo, array.get(rS, cstTipo) + retC)
+        yrC = cstYear - 2000
+        diasC = (time - cstTimeE) / 86400000.0
+        durN    := durN + 1
+        durBars := durBars + (bar_index - cstBarE)
+        durDias := durDias + diasC
+        if retC >= 0
+            array.set(dWsum, cstTipo, array.get(dWsum, cstTipo) + diasC)
+            array.set(dWn, cstTipo, array.get(dWn, cstTipo) + 1)
+        else
+            array.set(dLsum, cstTipo, array.get(dLsum, cstTipo) + diasC)
+            array.set(dLn, cstTipo, array.get(dLn, cstTipo) + 1)
+        if retC >= 0
+            array.set(nW, cstTipo, array.get(nW, cstTipo) + 1)
+            rachaW := rachaW + 1
+            rachaL := 0
+            maxRW := math.max(maxRW, rachaW)
+            if yrC >= 0 and yrC < 60
+                array.set(yW, yrC, array.get(yW, yrC) + 1)
+        else
+            array.set(nL, cstTipo, array.get(nL, cstTipo) + 1)
+            rachaL := rachaL + 1
+            rachaW := 0
+            maxRL := math.max(maxRL, rachaL)
+            if yrC >= 0 and yrC < 60
+                array.set(yL, yrC, array.get(yL, yrC) + 1)
+        if verCierresSS
+            label.new(bar_index, na, motC + " x" + str.tostring(cstN) + " " + (retC >= 0 ? "+" : "") + str.tostring(retC, "#.#") + "%", yloc = retC >= 0 ? yloc.belowbar : yloc.abovebar, color = retC >= 0 ? color.new(cVerde, 0) : color.new(cRoja, 0), textcolor = color.white, style = retC >= 0 ? label.style_label_up : label.style_label_down, size = size.small)
+        cstDir := 0
+        cstSum := 0.0
+        cstN := 0
+    // abre la cesta o AÑADE en el mismo lado (no después de la hora de cierre)
+    _antesC = na(_hcMin) or _minET < _hcMin
+    if (sigUpV or sigDnV) and _antesC
+        _dC = sigUpV ? 1 : -1
+        if cstDir == 0
+            cstDir  := _dC
+            cstSum  := close
+            cstN    := 1
+            cstTipo := tipoSig
+            cstYear := year
+            cstBarE  := bar_index
+            cstTimeE := time
+        else if cstDir == _dC and (maxCesta == 0 or cstN < maxCesta)
+            cstSum := cstSum + close
+            cstN   := cstN + 1
+if sigUpV and not modoSenal
+    array.push(tEntry, close)
+    array.push(tDir, 1)
+    array.push(tBar, bar_index)
+    array.push(tTipo, tipoSig)
+    array.push(tYear, year)
+    array.push(tTime, time)
+if sigDnV and not modoSenal
+    array.push(tEntry, close)
+    array.push(tDir, -1)
+    array.push(tBar, bar_index)
+    array.push(tTipo, tipoSig)
+    array.push(tYear, year)
+    array.push(tTime, time)
+// estado para UNA A LA VEZ: ¿queda alguna posición abierta al cerrar esta barra?
+hayPos := array.size(tEntry) > 0
+
+// ============================ PRUEBA DE AZAR (sombra) ============================
+// No toca el backtest real. Abre trades "sombra" con la MISMA regla fija que el
+// backtest normal (OBJ% / STOP% / N velas, camino real intrabar) para comparar:
+//   · MISMAS VELAS de señal: un largo Y un corto en cada señal → SEÑAL (su dirección),
+//     SOLO LARGOS, SOLO CORTOS y MONEDA (promedio exacto de largo y corto = lo que
+//     daría tirar una moneda infinitas veces, sin ruido de una sola tirada).
+//   · CUALQUIER VELA: un largo y un corto en TODAS las velas (momento al azar). Con la
+//     misma mezcla de largos/cortos que tuvo la señal → la vara de "momento al azar".
+// stats por dirección: [0]=n resueltos  [1]=ganadas  [2]=suma R%  [3]=suma R%²
+
+f_acum(array<float> st, float r) =>
+    array.set(st, 0, array.get(st, 0) + 1)
+    array.set(st, 1, array.get(st, 1) + (r >= 0 ? 1 : 0))
+    array.set(st, 2, array.get(st, 2) + r)
+    array.set(st, 3, array.get(st, 3) + r * r)
+    true
+
+f_bookStep(array<float> zE, array<int> zD, array<int> zB, array<float> stL, array<float> stS, map<int, float> zMap, bool guardar, array<float> zHi, array<float> zLo, bool zIntra) =>
+    zo = objPct / 100.0
+    zs = stopPct / 100.0
+    zi = array.size(zE) - 1
+    while zi >= 0
+        ze = array.get(zE, zi)
+        zd = array.get(zD, zi)
+        zb = array.get(zB, zi)
+        ztg = zd == 1 ? ze * (1 + zo) : ze * (1 - zo)
+        zst = zd == 1 ? ze * (1 - zs) : ze * (1 + zs)
+        zres = false
+        zr = 0.0
+        zcuenta = true
+        if bar_index > zb
+            zhit = 0
+            if zIntra and array.size(zHi) > 0
+                for zj = 0 to array.size(zHi) - 1
+                    if zhit == 0
+                        zh = array.get(zHi, zj)
+                        zl = array.get(zLo, zj)
+                        if zd == 1
+                            zhit := zl <= zst ? -1 : (zh >= ztg ? 1 : 0)
+                        else
+                            zhit := zh >= zst ? -1 : (zl <= ztg ? 1 : 0)
+            else
+                if zd == 1
+                    zhit := open >= ztg ? 1 : (open <= zst ? -1 : (low <= zst ? -1 : (high >= ztg ? 1 : 0)))
+                else
+                    zhit := open <= ztg ? 1 : (open >= zst ? -1 : (high >= zst ? -1 : (low <= ztg ? 1 : 0)))
+            if zhit == 1
+                zr := objPct
+                zres := true
+            else if zhit == -1
+                zr := -stopPct
+                zres := true
+            if not zres and (bar_index - zb) >= maxVelas
+                zr := zd == 1 ? (close - ze) / ze * 100.0 : (ze - close) / ze * 100.0
+                zres := true
+                zcuenta := cierraMercado    // flotante: no cuenta, igual que el backtest real
+        if zres
+            if zcuenta
+                if zd == 1
+                    f_acum(stL, zr)
+                else
+                    f_acum(stS, zr)
+            if guardar
+                map.put(zMap, zb * 2 + (zd == 1 ? 0 : 1), zcuenta ? zr : na)
+            array.remove(zE, zi)
+            array.remove(zD, zi)
+            array.remove(zB, zi)
+        zi := zi - 1
+    true
+
+// libro MISMAS VELAS (sb) y libro CUALQUIER VELA (ab)
+var array<float> sbE = array.new_float()
+var array<int>   sbD = array.new_int()
+var array<int>   sbB = array.new_int()
+var array<float> abE = array.new_float()
+var array<int>   abD = array.new_int()
+var array<int>   abB = array.new_int()
+var array<float> stSbL = array.new_float(4, 0.0)
+var array<float> stSbS = array.new_float(4, 0.0)
+var array<float> stAbL = array.new_float(4, 0.0)
+var array<float> stAbS = array.new_float(4, 0.0)
+var map<int, float> sbMap = map.new<int, float>()
+var map<int, float> abMap = map.new<int, float>()   // no se usa (guardar=false)
+var array<int>   pdB = array.new_int()       // señales pendientes de emparejar (barra)
+var array<int>   pdD = array.new_int()       // y su dirección real
+var array<float> azSig  = array.new_float(6, 0.0)   // SEÑAL: n, ganadas, suma R, suma R², n largos, n cortos
+var array<float> azEdge = array.new_float(3, 0.0)   // ventaja de dirección: n, suma, suma²
+
+// 1) procesa lo abierto (antes de abrir lo de esta vela, igual que el real)
+f_bookStep(sbE, sbD, sbB, stSbL, stSbS, sbMap, true,  aIHi, aILo, intraOk)
+f_bookStep(abE, abD, abB, stAbL, stAbS, abMap, false, aIHi, aILo, intraOk)
+
+// 2) empareja cada señal cuando ya se resolvieron su largo y su corto sombra
+if array.size(pdB) > 0
+    k = array.size(pdB) - 1
+    while k >= 0
+        pb = array.get(pdB, k)
+        if map.contains(sbMap, pb * 2) and map.contains(sbMap, pb * 2 + 1)
+            rL  = map.get(sbMap, pb * 2)
+            rSh = map.get(sbMap, pb * 2 + 1)
+            pdir = array.get(pdD, k)
+            rSig = pdir == 1 ? rL : rSh
+            rOp  = pdir == 1 ? rSh : rL
+            if not na(rSig)
+                array.set(azSig, 0, array.get(azSig, 0) + 1)
+                array.set(azSig, 1, array.get(azSig, 1) + (rSig >= 0 ? 1 : 0))
+                array.set(azSig, 2, array.get(azSig, 2) + rSig)
+                array.set(azSig, 3, array.get(azSig, 3) + rSig * rSig)
+                array.set(azSig, pdir == 1 ? 4 : 5, array.get(azSig, pdir == 1 ? 4 : 5) + 1)
+            if not na(rSig) and not na(rOp)
+                ed = (rSig - rOp) / 2.0    // señal menos moneda en ESA misma vela
+                array.set(azEdge, 0, array.get(azEdge, 0) + 1)
+                array.set(azEdge, 1, array.get(azEdge, 1) + ed)
+                array.set(azEdge, 2, array.get(azEdge, 2) + ed * ed)
+            map.remove(sbMap, pb * 2)
+            map.remove(sbMap, pb * 2 + 1)
+            array.remove(pdB, k)
+            array.remove(pdD, k)
+        k := k - 1
+
+// 3) abre lo de esta vela: en cada señal un largo y un corto; en TODA vela también
+if sigUpV or sigDnV
+    array.push(sbE, close)
+    array.push(sbD, 1)
+    array.push(sbB, bar_index)
+    array.push(sbE, close)
+    array.push(sbD, -1)
+    array.push(sbB, bar_index)
+    array.push(pdB, bar_index)
+    array.push(pdD, sigUpV ? 1 : -1)
+if okApertura
+    array.push(abE, close)
+    array.push(abD, 1)
+    array.push(abB, bar_index)
+    array.push(abE, close)
+    array.push(abD, -1)
+    array.push(abB, bar_index)
+
+// ayudas para el cuadro
+f_ncdf(x) =>
+    _t = 1.0 / (1.0 + 0.2316419 * math.abs(x))
+    _d = 0.3989422804 * math.exp(-x * x / 2.0)
+    _p = _d * _t * (0.3193815 + _t * (-0.3565638 + _t * (1.781478 + _t * (-1.821256 + _t * 1.330274))))
+    x >= 0 ? 1.0 - _p : _p
+f_sd(n, sm, sm2) => n > 1 ? math.sqrt(math.max((sm2 - sm * sm / n) / (n - 1), 0.0)) : na
+f_dur(d) => na(d) ? "·" : (d < 1 ? str.tostring(d * 24.0, "#.#") + " h" : str.tostring(d, "#.#") + " d")
+f_pct(x) => na(x) ? "-" : str.tostring(x, "#") + "%"
+f_r(x) => na(x) ? "-" : (x >= 0 ? "+" : "") + str.tostring(x, "#.##") + "%"
+
+// LÍNEAS TP/SL de la POSICIÓN VIVA (como en la web): SOLO mientras hay un trade
+// abierto, en sus niveles; al cerrar desaparecen. Ponerlas en todo el historial
+// apretaba el gráfico (en marcos chicos el objetivo queda a un % grande, muy lejos).
+// Normal usa OBJ%/STOP%; señal-a-señal usa TP%/SL%. Si en señal-a-señal no hay % de
+// TP/SL puesto, esa raya no se dibuja (no hay nivel fijo).
+var line _tpLn = na
+var line _slLn = na
+_posViva = modoSenal ? (modoCesta ? cstDir != 0 : sigDir != 0) : (array.size(tEntry) > 0)
+_eV = modoSenal ? (modoCesta ? (cstN > 0 ? cstSum / cstN : na) : sigEntry) : (array.size(tEntry) > 0 ? array.get(tEntry, array.size(tEntry) - 1) : na)
+_dV = modoSenal ? (modoCesta ? cstDir : sigDir) : (array.size(tDir) > 0 ? array.get(tDir, array.size(tDir) - 1) : 0)
+_tpPv = modoSenal ? tpPctSS : objPct
+_slPv = modoSenal ? slPctSS : stopPct
+if verTPSL and _posViva and not na(_eV) and _tpPv > 0
+    _y = _dV == 1 ? _eV * (1 + _tpPv / 100.0) : _eV * (1 - _tpPv / 100.0)
+    if na(_tpLn)
+        _tpLn := line.new(bar_index - 1, _y, bar_index, _y, extend=extend.both, color=cVerde, style=line.style_dashed, width=1)
+    else
+        line.set_xy1(_tpLn, bar_index - 1, _y)
+        line.set_xy2(_tpLn, bar_index, _y)
+else
+    if not na(_tpLn)
+        line.delete(_tpLn)
+        _tpLn := na
+if verTPSL and _posViva and not na(_eV) and _slPv > 0
+    _y2 = _dV == 1 ? _eV * (1 - _slPv / 100.0) : _eV * (1 + _slPv / 100.0)
+    if na(_slLn)
+        _slLn := line.new(bar_index - 1, _y2, bar_index, _y2, extend=extend.both, color=cRoja, style=line.style_dashed, width=1)
+    else
+        line.set_xy1(_slLn, bar_index - 1, _y2)
+        line.set_xy2(_slLn, bar_index, _y2)
+else
+    if not na(_slLn)
+        line.delete(_slLn)
+        _slLn := na
+
+// ------------------------------- Cuadro -------------------------------------
+if verRes and barstate.islast
+    hb = color.new(color.black, 5)
+    // caja de arriba: velas medidas + rachas seguidas
+    var table tinfo = table.new(position.top_right, 2, 7, border_width=2, frame_color=color.gray, frame_width=2)
+    table.cell(tinfo, 0, 0, "Velas medidas",     text_color=color.new(color.white, 15), bgcolor=hb, text_size=size.small)
+    table.cell(tinfo, 1, 0, str.tostring(bar_index + 1), text_color=color.white, bgcolor=hb, text_size=size.normal)
+    table.cell(tinfo, 0, 1, "Ganadas seguidas",  text_color=color.new(color.white, 15), bgcolor=hb, text_size=size.small)
+    table.cell(tinfo, 1, 1, str.tostring(maxRW), text_color=cVerde, bgcolor=hb, text_size=size.normal)
+    table.cell(tinfo, 0, 2, "Perdidas seguidas", text_color=color.new(color.white, 15), bgcolor=hb, text_size=size.small)
+    table.cell(tinfo, 1, 2, str.tostring(maxRL), text_color=cRoja, bgcolor=hb, text_size=size.normal)
+    table.cell(tinfo, 0, 3, "Camino real",       text_color=color.new(color.white, 15), bgcolor=hb, text_size=size.small)
+    table.cell(tinfo, 1, 3, intraOk ? str.tostring(nCamino) + " trades" : (usarIntra ? "TF no válido" : "off"), text_color=(usarIntra and not intraOk ? color.yellow : color.new(color.white, 15)), bgcolor=hb, text_size=size.small)
+    escTxt = not usarEscalera ? "off" : (escAlinUp ? "COMPRA" : (escAlinDn ? "VENTA" : (escMixto ? "MIXTO" : "—")))
+    escCol = escAlinUp ? cVerde : (escAlinDn ? cRoja : (escMixto ? color.yellow : color.gray))
+    nivTxt = f_arw(a1, s1) + f_arw(a2, s2) + f_arw(a3, s3)
+    table.cell(tinfo, 0, 4, usarEscalera ? "Escalera " + nivTxt : "Escalera", text_color=color.new(color.white, 15), bgcolor=hb, text_size=size.small)
+    table.cell(tinfo, 1, 4, escTxt, text_color=escCol, bgcolor=hb, text_size=size.normal)
+    // DURACIÓN media de cada trade (todos los modos; sin flotantes)
+    _dW = 0.0
+    _nW = 0
+    _dL = 0.0
+    _nL = 0
+    for q = 0 to 2
+        _dW := _dW + array.get(dWsum, q)
+        _nW := _nW + array.get(dWn, q)
+        _dL := _dL + array.get(dLsum, q)
+        _nL := _nL + array.get(dLn, q)
+    durTxt = durN > 0 ? f_dur(durDias / durN) + " · " + str.tostring(durBars / durN, "#.#") + " velas" : "-"
+    table.cell(tinfo, 0, 5, "Duración media",    text_color=color.new(color.white, 15), bgcolor=hb, text_size=size.small)
+    table.cell(tinfo, 1, 5, durTxt, text_color=color.white, bgcolor=hb, text_size=size.normal)
+    table.cell(tinfo, 0, 6, "  · ganadoras / perdedoras", text_color=color.new(color.white, 15), bgcolor=hb, text_size=size.small)
+    table.cell(tinfo, 1, 6, (_nW + _nL) > 0 ? f_dur(_nW > 0 ? _dW / _nW : na) + " / " + f_dur(_nL > 0 ? _dL / _nL : na) : "-", text_color=color.new(color.white, 15), bgcolor=hb, text_size=size.small)
+    var table tr = table.new(position.bottom_right, 7, 5, border_width=2, frame_color=color.gray, frame_width=2)
+    table.cell(tr, 0, 0, "TIPO",    text_color=color.white, bgcolor=hb, text_size=size.normal)
+    table.cell(tr, 1, 0, "ACIERTO", text_color=color.white, bgcolor=hb, text_size=size.normal)
+    table.cell(tr, 2, 0, "W-L",     text_color=color.white, bgcolor=hb, text_size=size.normal)
+    table.cell(tr, 3, 0, "flot",    text_color=color.white, bgcolor=hb, text_size=size.normal)
+    table.cell(tr, 4, 0, "GAP",     text_color=color.white, bgcolor=hb, text_size=size.normal)
+    table.cell(tr, 5, 0, "R real",  text_color=color.white, bgcolor=hb, text_size=size.normal)
+    table.cell(tr, 6, 0, "DÍAS G/P", text_color=color.white, bgcolor=hb, text_size=size.normal)
+    nombres = array.from("LLENA", "FLECO", "ENGULF")
+    twT = 0
+    tlT = 0
+    tfT = 0
+    trT = 0.0
+    dWsT = 0.0
+    dWnT = 0
+    dLsT = 0.0
+    dLnT = 0
+    for k = 0 to 2
+        w = array.get(nW, k)
+        l = array.get(nL, k)
+        fl = array.get(nF, k)
+        sfl = array.get(sF, k)
+        gs = array.get(gS, k)
+        gn = array.get(gN, k)
+        gw = array.get(gW, k)
+        rs = array.get(rS, k)
+        tot = w + l
+        pc = tot > 0 ? 100.0 * w / tot : 0.0
+        ravg = tot > 0 ? rs / tot : 0.0
+        col = tot == 0 ? color.gray : (pc >= 55 ? cVerde : (pc < 45 ? cRoja : color.yellow))
+        table.cell(tr, 0, k + 1, array.get(nombres, k), text_color=color.new(color.white, 15), text_size=size.normal)
+        table.cell(tr, 1, k + 1, tot > 0 ? str.tostring(pc, "#") + "%" : "-", text_color=col, text_size=size.large)
+        table.cell(tr, 2, k + 1, str.tostring(w) + "-" + str.tostring(l), text_color=color.new(color.white, 15), text_size=size.normal)
+        table.cell(tr, 3, k + 1, str.tostring(fl) + (fl > 0 ? " " + (sfl / fl >= 0 ? "+" : "") + str.tostring(sfl / fl, "#.#") + "%" : ""), text_color=color.yellow, text_size=size.small)
+        table.cell(tr, 4, k + 1, gn > 0 ? (gs / gn >= 0 ? "+" : "") + str.tostring(gs / gn, "#.#") + "% (" + str.tostring(gw) + "g)" : "-", text_color=color.new(color.white, 15), text_size=size.small)
+        table.cell(tr, 5, k + 1, tot > 0 ? (ravg >= 0 ? "+" : "") + str.tostring(ravg, "#.##") + "%" : "-", text_color=(tot == 0 ? color.gray : (ravg >= 0 ? cVerde : cRoja)), text_size=size.normal)
+        dws = array.get(dWsum, k)
+        dwn = array.get(dWn, k)
+        dls = array.get(dLsum, k)
+        dln = array.get(dLn, k)
+        gTxt = dwn > 0 ? str.tostring(dws / dwn, "#.#") : "·"
+        pTxt = dln > 0 ? str.tostring(dls / dln, "#.#") : "·"
+        table.cell(tr, 6, k + 1, (dwn + dln) > 0 ? gTxt + " / " + pTxt : "-", text_color=color.new(color.white, 15), text_size=size.small)
+        twT := twT + w
+        tlT := tlT + l
+        tfT := tfT + fl
+        trT := trT + rs
+        dWsT := dWsT + dws
+        dWnT := dWnT + dwn
+        dLsT := dLsT + dls
+        dLnT := dLnT + dln
+    totT = twT + tlT
+    pcT = totT > 0 ? 100.0 * twT / totT : 0.0
+    colT = totT == 0 ? color.gray : (pcT >= 55 ? cVerde : (pcT < 45 ? cRoja : color.yellow))
+    table.cell(tr, 0, 4, "TOTAL", text_color=color.white, bgcolor=hb, text_size=size.normal)
+    table.cell(tr, 1, 4, totT > 0 ? str.tostring(pcT, "#") + "%" : "-", text_color=colT, bgcolor=hb, text_size=size.large)
+    table.cell(tr, 2, 4, str.tostring(twT) + "-" + str.tostring(tlT), text_color=color.white, bgcolor=hb, text_size=size.normal)
+    table.cell(tr, 3, 4, str.tostring(tfT), text_color=color.yellow, bgcolor=hb, text_size=size.small)
+    escLbl = (usarEscalera ? " · escalera" + (a1 ? " " + tfS1 : "") + (a2 ? " " + tfS2 : "") + (a3 ? " " + tfS3 : "") : "") + (usarContinua ? " · cont" : "")
+    table.cell(tr, 4, 4, modoSenal ? (VER + " · SEÑAL a SEÑAL" + ((tpPctSS > 0 or slPctSS > 0) ? " · TP " + str.tostring(tpPctSS, "#.#") + "%/SL " + str.tostring(slPctSS, "#.#") + "%" : " (solo señal opuesta)")) : (VER + " · obj " + str.tostring(objPct, "#.#") + "/" + str.tostring(stopPct, "#.#") + (cierraMercado ? " · cierra " + str.tostring(maxVelas) + "v" : " · flota") + (intraOk ? " · intra " + tfIntra : "") + escLbl + (unaVez ? " · 1x" : "") + (soloApertura ? " · apertura" : "") + (maxTradesSesion > 0 ? " · máx " + str.tostring(maxTradesSesion) + "/día" : "")), text_color=color.new(color.white, 30), bgcolor=hb, text_size=size.small)
+    ravgT = totT > 0 ? trT / totT : 0.0
+    table.cell(tr, 5, 4, totT > 0 ? (ravgT >= 0 ? "+" : "") + str.tostring(ravgT, "#.##") + "%" : "-", text_color=(totT == 0 ? color.gray : (ravgT >= 0 ? cVerde : cRoja)), bgcolor=hb, text_size=size.normal)
+    gTxtT = dWnT > 0 ? str.tostring(dWsT / dWnT, "#.#") : "·"
+    pTxtT = dLnT > 0 ? str.tostring(dLsT / dLnT, "#.#") : "·"
+    table.cell(tr, 6, 4, (dWnT + dLnT) > 0 ? gTxtT + " / " + pTxtT : "-", text_color=color.white, bgcolor=hb, text_size=size.small)
+
+    // ---- resumen AÑO por AÑO (ganadas / perdidas) ----
+    nYrs = 0
+    for y = 0 to 59
+        nYrs := nYrs + ((array.get(yW, y) + array.get(yL, y)) > 0 ? 1 : 0)
+    if nYrs > 0
+        ty = table.new(position.bottom_left, 4, nYrs + 1, border_width=2, frame_color=color.gray, frame_width=2)
+        table.cell(ty, 0, 0, "AÑO",    text_color=color.white, bgcolor=hb, text_size=size.small)
+        table.cell(ty, 1, 0, "Gana",   text_color=color.white, bgcolor=hb, text_size=size.small)
+        table.cell(ty, 2, 0, "Pierde", text_color=color.white, bgcolor=hb, text_size=size.small)
+        table.cell(ty, 3, 0, "%",      text_color=color.white, bgcolor=hb, text_size=size.small)
+        rowy = 1
+        for y = 0 to 59
+            gwy = array.get(yW, y)
+            lwy = array.get(yL, y)
+            tty = gwy + lwy
+            if tty > 0
+                pcy = 100.0 * gwy / tty
+                cyy = pcy >= 55 ? cVerde : (pcy < 45 ? cRoja : color.yellow)
+                table.cell(ty, 0, rowy, str.tostring(2000 + y), text_color=color.new(color.white, 15), text_size=size.small)
+                table.cell(ty, 1, rowy, str.tostring(gwy), text_color=cVerde, text_size=size.small)
+                table.cell(ty, 2, rowy, str.tostring(lwy), text_color=cRoja, text_size=size.small)
+                table.cell(ty, 3, rowy, str.tostring(pcy, "#") + "%", text_color=cyy, text_size=size.small)
+                rowy := rowy + 1
+
+// ---------------------------- Cuadro PRUEBA DE AZAR ----------------------------
+if verAzar and barstate.islast
+    hz = color.new(color.black, 5)
+    ww = color.new(color.white, 15)
+    pz = posAzar == "Centro derecha" ? position.middle_right : (posAzar == "Arriba izquierda" ? position.top_left : (posAzar == "Arriba centro" ? position.top_center : position.middle_left))
+    var table ta = table.new(pz, 4, 13, border_width=2, frame_color=color.gray, frame_width=2)
+    // SEÑAL
+    nS  = array.get(azSig, 0)
+    mS  = nS > 0 ? array.get(azSig, 2) / nS : na
+    wS  = nS > 0 ? 100.0 * array.get(azSig, 1) / nS : na
+    sdS = f_sd(nS, array.get(azSig, 2), array.get(azSig, 3))
+    nLg = array.get(azSig, 4)
+    nCt = array.get(azSig, 5)
+    pL  = (nLg + nCt) > 0 ? nLg / (nLg + nCt) : 0.5
+    // mismas velas
+    nBL = array.get(stSbL, 0)
+    nBS = array.get(stSbS, 0)
+    mBL = nBL > 0 ? array.get(stSbL, 2) / nBL : na
+    mBS = nBS > 0 ? array.get(stSbS, 2) / nBS : na
+    wBL = nBL > 0 ? 100.0 * array.get(stSbL, 1) / nBL : na
+    wBS = nBS > 0 ? 100.0 * array.get(stSbS, 1) / nBS : na
+    nBM = nBL + nBS
+    mBM = nBM > 0 ? (array.get(stSbL, 2) + array.get(stSbS, 2)) / nBM : na
+    wBM = nBM > 0 ? 100.0 * (array.get(stSbL, 1) + array.get(stSbS, 1)) / nBM : na
+    // cualquier vela
+    nAL = array.get(stAbL, 0)
+    nAS = array.get(stAbS, 0)
+    mAL = nAL > 0 ? array.get(stAbL, 2) / nAL : na
+    mAS = nAS > 0 ? array.get(stAbS, 2) / nAS : na
+    wAL = nAL > 0 ? 100.0 * array.get(stAbL, 1) / nAL : na
+    wAS = nAS > 0 ? 100.0 * array.get(stAbS, 1) / nAS : na
+    nAM = nAL + nAS
+    mAM = nAM > 0 ? (array.get(stAbL, 2) + array.get(stAbS, 2)) / nAM : na
+    wAM = nAM > 0 ? 100.0 * (array.get(stAbL, 1) + array.get(stAbS, 1)) / nAM : na
+    // vara "momento al azar": misma mezcla largos/cortos que la señal, en cualquier vela
+    mMix = (na(mAL) or na(mAS)) ? na : pL * mAL + (1 - pL) * mAS
+    wMix = (na(wAL) or na(wAS)) ? na : pL * wAL + (1 - pL) * wAS
+    // t-stats (una cola): ¿qué tan probable es ver esto por pura suerte?
+    seS  = (not na(sdS) and sdS > 0) ? sdS / math.sqrt(nS) : na
+    tGan = na(seS) ? na : mS / seS
+    nE   = array.get(azEdge, 0)
+    mE   = nE > 0 ? array.get(azEdge, 1) / nE : na
+    sdE  = f_sd(nE, array.get(azEdge, 1), array.get(azEdge, 2))
+    tDir = (na(sdE) or sdE == 0) ? na : mE / (sdE / math.sqrt(nE))
+    tMom = (na(seS) or na(mMix)) ? na : (mS - mMix) / seS
+    // cabecera
+    table.cell(ta, 0, 0, "PRUEBA DE AZAR · obj " + str.tostring(objPct, "#.#") + "/stop " + str.tostring(stopPct, "#.#") + " · " + str.tostring(maxVelas) + "v" + (modoSenal ? " (regla fija)" : ""), text_color=color.white, bgcolor=hz, text_size=size.small)
+    table.cell(ta, 1, 0, "ACIERTO", text_color=color.white, bgcolor=hz, text_size=size.small)
+    table.cell(ta, 2, 0, "R medio", text_color=color.white, bgcolor=hz, text_size=size.small)
+    table.cell(ta, 3, 0, "n",       text_color=color.white, bgcolor=hz, text_size=size.small)
+    // filas de comparación
+    labs = array.from("SEÑAL (su dirección)", "Solo LARGOS · mismas velas", "Solo CORTOS · mismas velas", "MONEDA · mismas velas", "LARGO · cualquier vela", "CORTO · cualquier vela", "MONEDA · cualquier vela", "Mezcla " + str.tostring(pL * 100, "#") + "% largos · al azar")
+    ws  = array.from(wS, wBL, wBS, wBM, wAL, wAS, wAM, wMix)
+    ms  = array.from(mS, mBL, mBS, mBM, mAL, mAS, mAM, mMix)
+    ns  = array.from(nS, nBL, nBS, nBM, nAL, nAS, nAM, nAM)
+    for r = 0 to 7
+        wv = array.get(ws, r)
+        mv = array.get(ms, r)
+        bgR = r == 0 ? color.new(color.blue, 70) : na
+        table.cell(ta, 0, r + 1, array.get(labs, r), text_color=(r == 0 ? color.white : ww), bgcolor=bgR, text_size=size.small)
+        table.cell(ta, 1, r + 1, f_pct(wv), text_color=ww, bgcolor=bgR, text_size=size.small)
+        table.cell(ta, 2, r + 1, f_r(mv), text_color=(na(mv) ? color.gray : (mv >= 0 ? cVerde : cRoja)), bgcolor=bgR, text_size=size.small)
+        table.cell(ta, 3, r + 1, str.tostring(array.get(ns, r), "#"), text_color=color.new(color.white, 40), bgcolor=bgR, text_size=size.small)
+    // veredictos
+    vLabs = array.from("¿Gana dinero? (R > 0)", "¿Acierta la DIRECCIÓN? (vs moneda)", "¿Acierta el MOMENTO? (vs mezcla al azar)")
+    vT    = array.from(tGan, tDir, tMom)
+    vN    = array.from(nS, nE, nS)
+    for r = 0 to 2
+        tv = array.get(vT, r)
+        nv = array.get(vN, r)
+        pv = na(tv) ? na : 100.0 * (1.0 - f_ncdf(tv))
+        pocas = nv < 30
+        verd = na(tv) ? "-" : (pocas ? "pocas (" + str.tostring(nv, "#") + ")" : (tv >= 2 ? "✔ sí" : (tv >= 1 ? "~ débil" : "✗ no")))
+        cv = na(tv) ? color.gray : (pocas ? color.yellow : (tv >= 2 ? cVerde : (tv >= 1 ? color.yellow : cRoja)))
+        table.cell(ta, 0, r + 10, array.get(vLabs, r), text_color=color.white, bgcolor=hz, text_size=size.small)
+        table.cell(ta, 1, r + 10, na(tv) ? "-" : "t " + str.tostring(tv, "#.##"), text_color=cv, bgcolor=hz, text_size=size.small)
+        table.cell(ta, 2, r + 10, na(pv) ? "-" : "suerte " + (pv < 0.1 ? "<0.1" : str.tostring(pv, "#.#")) + "%", text_color=cv, bgcolor=hz, text_size=size.small)
+        table.cell(ta, 3, r + 10, verd, text_color=cv, bgcolor=hz, text_size=size.small)
+
+alertcondition(sigUpV, "Swing alcista", "Swing: señal ALCISTA (vela)")
+alertcondition(sigDnV, "Swing bajista", "Swing: señal BAJISTA (vela)")

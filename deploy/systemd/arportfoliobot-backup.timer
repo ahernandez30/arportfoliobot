@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the AR Portfolio Bot database backup nightly
+
+[Timer]
+# 07:00 UTC is 3:00 a.m. New York time in summer, 2:00 a.m. in winter.
+OnCalendar=*-*-* 07:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

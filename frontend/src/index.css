@@ -1,0 +1,58 @@
+/* Theme tokens from BUILD_PLAN section 5. Light theme is chosen with data-theme="light". */
+:root {
+  --bg: #0e1116;
+  --panel: #161b22;
+  --menu: #12161d;
+  --border: #262d38;
+  --text: #e6eaf0;
+  --text-2: #9aa4b2;
+  --accent: #5b9dff;
+  --gain: #4ade9a;
+  --loss: #ff7a85;
+  --paper: #f5b83d;
+  --on-paper: #1a1205;
+  --on-accent: #0b1220;
+  --radius-panel: 12px;
+  --radius-control: 8px;
+  --control-h: 44px;
+  --font-text: 'Hanken Grotesk Variable', system-ui, sans-serif;
+  --font-num: 'JetBrains Mono Variable', ui-monospace, monospace;
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  --bg: #f4f6f9;
+  --panel: #ffffff;
+  --menu: #eef1f5;
+  --border: #d5dbe3;
+  --text: #121821;
+  --text-2: #566273;
+  --accent: #2f6fd6;
+  --gain: #13804f;
+  --loss: #c62f3e;
+  --on-accent: #ffffff;
+  color-scheme: light;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-text);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input {
+  font: inherit;
+}

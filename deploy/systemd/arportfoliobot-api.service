@@ -1,0 +1,20 @@
+[Unit]
+Description=AR Portfolio Bot web backend (FastAPI)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+User=arpb
+Group=arpb
+WorkingDirectory=/opt/arportfoliobot/backend
+EnvironmentFile=/etc/arportfoliobot/arportfoliobot.env
+ExecStart=/opt/arportfoliobot/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips 127.0.0.1 --no-server-header
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

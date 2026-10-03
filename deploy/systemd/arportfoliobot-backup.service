@@ -1,0 +1,7 @@
+[Unit]
+Description=AR Portfolio Bot nightly database backup
+After=postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/arportfoliobot-backup
