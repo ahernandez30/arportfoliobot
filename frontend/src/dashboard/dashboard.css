@@ -1,0 +1,94 @@
+.dash {
+  min-width: 0;
+}
+
+.tile {
+  padding: 14px 16px;
+  gap: 10px;
+  overflow: hidden;
+  height: 100%;
+}
+
+.tile-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 28px;
+}
+
+.tile-head h2 {
+  font-size: 0.95rem;
+}
+
+.drag-handle {
+  cursor: grab;
+  user-select: none;
+  border-radius: 6px;
+  outline: 1px dashed var(--border);
+  outline-offset: 4px;
+}
+
+.tile-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.dash-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.dash-stack .tile {
+  height: auto;
+}
+
+.dash-stack .chart-box {
+  min-height: 320px;
+}
+
+.select-small {
+  height: 36px;
+  width: auto;
+}
+
+.totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stat-label {
+  color: var(--text-2);
+  font-size: 0.8rem;
+}
+
+.stat-value {
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+.stat-note {
+  font-size: 0.75rem;
+}
+
+/* Grid placeholder while dragging, in theme colours. */
+.react-grid-item.react-grid-placeholder {
+  background: var(--accent);
+  opacity: 0.15;
+  border-radius: var(--radius-panel);
+}
+
+.react-grid-item > .react-resizable-handle::after {
+  border-color: var(--text-2);
+}

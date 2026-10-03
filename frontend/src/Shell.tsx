@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import { NavLink, Outlet } from 'react-router'
 import { useMe, useAuth } from './auth'
 import './Shell.css'
@@ -73,7 +73,9 @@ export default function Shell() {
       <div className="scrim" onClick={() => setOpen(false)} aria-hidden="true" />
 
       <main className="content">
-        <Outlet />
+        <Suspense fallback={<p className="muted">Loading…</p>}>
+          <Outlet />
+        </Suspense>
       </main>
     </div>
   )

@@ -79,6 +79,30 @@ function KeyRow({ provider, onChange }: { provider: KeyProvider; onChange: (l: K
   )
 }
 
+function TestConnection() {
+  const action = useAction()
+  return (
+    <div className="key-row">
+      <div className="actions">
+        <button
+          className="btn btn-small"
+          disabled={action.busy}
+          onClick={() =>
+            void action.run(async () => {
+              const r = await api<{ message: string }>('POST', '/api/market/test')
+              action.setStatus({ kind: 'ok', text: r.message })
+            })
+          }
+        >
+          {action.busy ? 'Testing…' : 'Test market data connection'}
+        </button>
+        <span className="muted">Uses your saved Tradier key (the live one if you saved both).</span>
+      </div>
+      <StatusLine status={action.status} />
+    </div>
+  )
+}
+
 export default function KeysSection() {
   const [listing, setListing] = useState<KeysListing | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -94,7 +118,7 @@ export default function KeysSection() {
       <h2>Keys and connections</h2>
       <p className="muted">
         Keys for your broker and market-data services. Each person uses their own keys. They are encrypted before they
-        are stored and are never sent back to the browser. The site starts using them from Stage 2.
+        are stored and are never sent back to the browser. Market data uses your Tradier key: a live key gives real-time prices, a sandbox (practice) key gives prices delayed 15 minutes.
       </p>
       {error && <p className="msg msg-error">{error}</p>}
       {listing && !listing.storage_ready && (
@@ -103,6 +127,7 @@ export default function KeysSection() {
       {listing?.providers.map((p) => (
         <KeyRow key={p.id} provider={p} onChange={setListing} />
       ))}
+      {listing?.providers.some((p) => p.id.startsWith('tradier') && p.saved) && <TestConnection />}
     </div>
   )
 }

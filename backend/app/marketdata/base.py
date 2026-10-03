@@ -79,7 +79,8 @@ class Clock:
 
 @dataclass
 class StreamEvent:
-    """A live update. kind is "trade", "quote" or "summary"; only the fields that event carries are set."""
+    """A live update. kind is "trade", "quote" or "summary" (only the fields that event carries are
+    set), or "ready" once the stream is connected."""
 
     kind: str
     symbol: str

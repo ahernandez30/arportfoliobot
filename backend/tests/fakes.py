@@ -39,6 +39,7 @@ class FakeMarketData(MarketData):
         return Clock("open", "Market is open from 09:30 to 16:00", "16:00", "postmarket")
 
     async def stream(self, symbols):
+        yield StreamEvent("ready", "")
         for ev in self._events:
             if ev.symbol in symbols:
                 yield ev

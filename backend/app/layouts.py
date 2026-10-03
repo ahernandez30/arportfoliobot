@@ -91,8 +91,8 @@ def default_dashboard(ticker: str) -> DashboardModel:
     """The starting tiles from plan section 6: totals, watchlist, one chart, open trades."""
     return DashboardModel(tiles=[
         Tile(id="totals", kind="totals", x=0, y=0, w=12, h=3),
-        Tile(id="watchlist", kind="watchlist", x=0, y=3, w=5, h=10),
-        Tile(id="chart", kind="chart", x=5, y=3, w=7, h=10, symbol=ticker, timeframe="1D"),
+        Tile(id="watchlist", kind="watchlist", x=0, y=3, w=6, h=10),
+        Tile(id="chart", kind="chart", x=6, y=3, w=6, h=10, symbol=ticker, timeframe="1D"),
         Tile(id="trades", kind="trades", x=0, y=13, w=12, h=5),
     ])
 

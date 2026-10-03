@@ -250,6 +250,8 @@ class TradierMarketData(MarketData):
                 "linebreak": True,
                 "validOnly": True,
             }))
+            # Connected. When the market is closed no prices follow, but the feed is up.
+            yield StreamEvent("ready", "")
             async for message in ws:
                 for event in parse_stream_message(message):
                     yield event

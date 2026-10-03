@@ -1,0 +1,144 @@
+.chart-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.chart-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.symbol-form {
+  display: contents;
+}
+
+.symbol-input {
+  width: 96px;
+  text-transform: uppercase;
+  font-weight: 650;
+}
+
+.input-bad {
+  border-color: var(--loss);
+}
+
+.segmented.small button {
+  min-height: 36px;
+  padding: 0 10px;
+  font-size: 0.85rem;
+  font-family: var(--font-num);
+}
+
+.live-price {
+  display: inline-flex;
+  gap: 8px;
+  margin-left: auto;
+  font-size: 0.95rem;
+  white-space: nowrap;
+}
+
+.chart-box {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 220px;
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+
+.chart-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.chart-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5; /* above the chart's own canvas layers */
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 16px;
+  color: var(--text-2);
+  font-size: 0.9rem;
+  background: color-mix(in srgb, var(--panel) 75%, transparent);
+  pointer-events: none;
+}
+
+.chart-error {
+  pointer-events: auto;
+}
+
+.table .right {
+  text-align: right;
+}
+
+.watchlist th,
+.watchlist td {
+  padding: 10px 8px;
+}
+
+.watchlist .sym {
+  font-weight: 650;
+  font-family: var(--font-num);
+}
+
+.watchlist tr.clickable {
+  cursor: pointer;
+}
+
+.watchlist tr.clickable:hover td {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.page-head .actions {
+  margin-left: auto;
+}
+
+.charts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.charts-grid .panel {
+  height: min(52vh, 520px);
+  min-height: 360px;
+  padding: 14px;
+}
+
+@media (max-width: 1100px) {
+  .charts-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .charts-grid .panel {
+    height: 440px;
+  }
+}
+
+.credits {
+  color: var(--text-2);
+  font-size: 0.75rem;
+  margin: 0;
+}
+
+.credits a {
+  color: var(--text-2);
+}
+
+.market-state {
+  font-size: 0.85rem;
+}

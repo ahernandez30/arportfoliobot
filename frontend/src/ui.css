@@ -350,3 +350,36 @@ textarea.input {
 .link-result p {
   margin: 0 0 8px;
 }
+
+.badge-paper {
+  color: var(--on-paper);
+  background: var(--paper);
+  border-color: var(--paper);
+}
+
+.feed-badge {
+  gap: 6px;
+}
+
+.feed-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.gain {
+  color: var(--gain);
+}
+
+.loss {
+  color: var(--loss);
+}
+
+.flat {
+  color: var(--text-2);
+}
+
+.page.page-wide {
+  max-width: none;
+}

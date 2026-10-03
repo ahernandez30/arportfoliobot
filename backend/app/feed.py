@@ -209,6 +209,9 @@ class UserFeed:
     async def _stream(self, md: MarketData, symbols: frozenset[str]) -> None:
         await self._status("connecting", "Connecting to the live price feed…")
         async for ev in md.stream(sorted(symbols)):
+            if ev.kind == "ready":
+                await self._status("live")
+                continue
             self.last_event = utcnow()
             if self.state != "live":
                 await self._status("live")
