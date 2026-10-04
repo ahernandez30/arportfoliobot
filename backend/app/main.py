@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app import health, live, routes_admin, routes_auth, routes_capital, routes_market, routes_me, routes_paper
+from app import health, live, routes_admin, routes_auth, routes_capital, routes_market, routes_me, routes_paper, routes_strategy
 from app.config import get_settings
 from app.db import get_engine
 from app.errors import validation_handler
@@ -35,6 +35,7 @@ app.include_router(routes_admin.router)
 app.include_router(routes_market.router)
 app.include_router(routes_capital.router)
 app.include_router(routes_paper.router)
+app.include_router(routes_strategy.router)
 app.include_router(live.router)
 
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}

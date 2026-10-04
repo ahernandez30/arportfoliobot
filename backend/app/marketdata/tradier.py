@@ -157,11 +157,11 @@ class TradierMarketData(MarketData):
         )
         return as_list((data.get("history") or {}).get("day"))
 
-    async def candles(self, symbol: str, timeframe: str) -> list[Bar]:
+    async def candles(self, symbol: str, timeframe: str, start: date | None = None) -> list[Bar]:
         today = datetime.now(NY).date()
         if timeframe in DAILY_SOURCE:
             interval, days = DAILY_SOURCE[timeframe]
-            rows = await self._history(symbol, interval, today - timedelta(days=days), today)
+            rows = await self._history(symbol, interval, start or today - timedelta(days=days), today)
             return [
                 Bar(date_to_epoch(date.fromisoformat(r["date"])), num(r["open"]), num(r["high"]), num(r["low"]),
                     num(r["close"]), num(r.get("volume")) or 0.0)

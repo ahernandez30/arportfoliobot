@@ -98,8 +98,9 @@ class MarketData(ABC):
         """Quotes by symbol. Unknown symbols are left out."""
 
     @abstractmethod
-    async def candles(self, symbol: str, timeframe: str) -> list[Bar]:
-        """Recent regular-session candles, oldest first."""
+    async def candles(self, symbol: str, timeframe: str, start: date | None = None) -> list[Bar]:
+        """Regular-session candles, oldest first. Daily and weekly candles go back to `start` when
+        given (the strategy engine wants long histories); intraday history is what the provider keeps."""
 
     @abstractmethod
     async def daily_closes(self, symbol: str, start: date, end: date) -> list[DailyClose]:

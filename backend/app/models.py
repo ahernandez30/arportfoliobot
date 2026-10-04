@@ -457,3 +457,51 @@ class TradingControls(Base):
     # "Pause automatic trading": the strategy places nothing new (Stage 6).
     auto_paused: Mapped[bool] = mapped_column(Boolean, default=False)
     changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# ---------- Stage 5: strategies ----------
+
+
+class StrategyPreset(Base):
+    """Pegged strategy settings: one set per user, strategy, symbol and timeframe
+    (Rafa's choice for plan open decision 3)."""
+
+    __tablename__ = "strategy_presets"
+    __table_args__ = (UniqueConstraint("user_id", "strategy", "symbol", "timeframe", name="strategy_presets_key"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    strategy: Mapped[str] = mapped_column(String(40))
+    symbol: Mapped[str] = mapped_column(String(16))
+    timeframe: Mapped[str] = mapped_column(String(4))
+    inputs: Mapped[dict] = mapped_column(JSONB)
+    pegged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class MasterChartState(Base):
+    """What a user last had on Master Chart: strategy, symbol, timeframe and working inputs."""
+
+    __tablename__ = "master_chart_state"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    data: Mapped[dict] = mapped_column(JSONB, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                 onupdate=func.now())
+
+
+class ParityCheck(Base):
+    """A comparison of the engine's signals with signal dates exported from TradingView (plan 7.5)."""
+
+    __tablename__ = "parity_checks"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    strategy: Mapped[str] = mapped_column(String(40))
+    symbol: Mapped[str] = mapped_column(String(16))
+    timeframe: Mapped[str] = mapped_column(String(4))
+    filename: Mapped[str] = mapped_column(String(200), default="")
+    summary: Mapped[dict] = mapped_column(JSONB)
+    detail: Mapped[dict] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    signed_off_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sign_off_note: Mapped[str] = mapped_column(Text, default="")

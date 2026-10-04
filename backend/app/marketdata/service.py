@@ -101,12 +101,13 @@ class TTLCache:
 CANDLE_TTL = {"1m": 15, "5m": 30, "15m": 60, "1h": 60, "1D": 300, "1W": 900}
 
 
-async def candles(cache: TTLCache, user_id: int, md: MarketData, symbol: str, timeframe: str) -> list[Bar]:
-    key = (user_id, "candles", symbol, timeframe)
+async def candles(cache: TTLCache, user_id: int, md: MarketData, symbol: str, timeframe: str,
+                  start: date | None = None) -> list[Bar]:
+    key = (user_id, "candles", symbol, timeframe, start)
     hit = cache.get(key)
     if hit is not None:
         return hit
-    bars = await md.candles(symbol, timeframe)
+    bars = await md.candles(symbol, timeframe, start)
     cache.put(key, bars, CANDLE_TTL.get(timeframe, 60))
     return bars
 

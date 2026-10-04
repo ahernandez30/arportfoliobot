@@ -7,20 +7,24 @@ from app.marketdata.base import Bar, Clock, DailyClose, MarketData, MarketDataEr
 
 class FakeMarketData(MarketData):
     def __init__(self, *, realtime: bool = True, label: str = "fake", quotes: dict | None = None,
-                 closes: dict | None = None, events: list[StreamEvent] | None = None):
+                 closes: dict | None = None, events: list[StreamEvent] | None = None, bars: dict | None = None):
         self.realtime = realtime
         self.label = label
         self._quotes = quotes or {}
         self._closes = closes or {}
         self._events = events or []
+        # (symbol, timeframe) -> candles, for strategy tests.
+        self._bars = bars or {}
         self.calls: list[tuple] = []
 
     async def quotes(self, symbols):
         self.calls.append(("quotes", tuple(symbols)))
         return {s: self._quotes[s] for s in symbols if s in self._quotes}
 
-    async def candles(self, symbol, timeframe):
+    async def candles(self, symbol, timeframe, start=None):
         self.calls.append(("candles", symbol, timeframe))
+        if (symbol, timeframe) in self._bars:
+            return self._bars[(symbol, timeframe)]
         if symbol == "ERR":
             raise MarketDataError("Tradier returned an error (500).")
         return [Bar(1_790_000_000, 1.0, 2.0, 0.5, 1.5, 100.0), Bar(1_790_086_400, 1.5, 2.5, 1.0, 2.0, 200.0)]
