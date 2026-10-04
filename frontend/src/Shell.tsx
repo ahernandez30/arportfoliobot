@@ -1,6 +1,7 @@
 import { Suspense, useState } from 'react'
 import { NavLink, Outlet } from 'react-router'
 import { useMe, useAuth } from './auth'
+import NewVersion from './NewVersion'
 import './Shell.css'
 
 const TABS = [
@@ -73,6 +74,7 @@ export default function Shell() {
       <div className="scrim" onClick={() => setOpen(false)} aria-hidden="true" />
 
       <main className="content">
+        <NewVersion />
         <Suspense fallback={<p className="muted">Loading…</p>}>
           <Outlet />
         </Suspense>

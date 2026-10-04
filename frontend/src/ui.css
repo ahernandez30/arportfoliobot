@@ -383,3 +383,12 @@ textarea.input {
 .page.page-wide {
   max-width: none;
 }
+
+.new-version {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
