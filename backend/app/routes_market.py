@@ -66,12 +66,18 @@ async def market_status(user: User = Depends(current_user), db: Session = Depend
 
 @router.post("/api/market/test")
 async def test_connection(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
-    """The Config 'Test connection' button: one small request with the saved key."""
+    """The Config 'Test connection' button. Asks for a real quote: Tradier answers the market
+    clock even for a wrong key, so the clock alone proves nothing."""
     info = service.feed_info(db, user.id)
     md = _provider(db, user)
+    quotes = await _call(md.quotes(["SPY"]))
+    if "SPY" not in quotes:
+        raise HTTPException(502, "Tradier answered but sent no price. Try again in a minute.")
     clock = await _call(md.clock())
+    which = "live account key" if info.provider == "tradier" else "sandbox (practice) key"
     speed = "real-time prices" if info.realtime else "prices delayed 15 minutes"
-    return {"ok": True, "message": f"Connected to Tradier ({speed}). {clock.description or 'Market: ' + clock.state}."}
+    return {"ok": True, "message": f"Connected to Tradier with your {which} ({speed}). "
+                                   f"SPY last price {quotes['SPY'].last}. {clock.description}."}
 
 
 @router.get("/api/market/candles")

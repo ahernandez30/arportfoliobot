@@ -89,7 +89,7 @@ def test_status_and_test_button(fake_providers):
     s = c.get("/api/market/status").json()
     assert s["provider"] == "tradier_sandbox" and s["realtime"] is False and s["clock"]["state"] == "open"
     msg = c.post("/api/market/test").json()["message"]
-    assert "delayed 15 minutes" in msg
+    assert "delayed 15 minutes" in msg and "SPY last price 600" in msg
     # A live key wins over a practice key.
     c.put("/api/me/keys/tradier", json={"secret": "rafa-live-key-0001"})
     assert c.get("/api/market/status").json()["realtime"] is True
@@ -179,3 +179,21 @@ def test_layouts_are_per_user():
     rafa.put("/api/layouts/dashboard", json={"tiles": []})
     assert ana.get("/api/layouts/charts").json()["panes"][0]["symbol"] != "AMZN"
     assert len(ana.get("/api/layouts/dashboard").json()["tiles"]) == 4
+
+
+def test_test_button_checks_a_real_price(fake_providers, monkeypatch):
+    """A wrong key can still read the market clock, so the test must ask for a price."""
+    from app.marketdata.base import MarketDataError
+
+    make_user("rafa@example.com")
+    c = signed_in("rafa@example.com")
+    c.put("/api/me/keys/tradier", json={"secret": "rafa-bad-key-0001"})
+    c.get("/api/market/status")  # builds the provider
+    md = fake_providers[0]
+
+    async def refused(symbols):
+        raise MarketDataError("Tradier did not accept the key. Check it in Config → Keys & connections.", status=409)
+
+    monkeypatch.setattr(md, "quotes", refused)
+    r = c.post("/api/market/test")
+    assert r.status_code == 409 and "did not accept the key" in r.json()["detail"]
