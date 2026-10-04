@@ -1,5 +1,6 @@
-import { useState, type FormEvent } from 'react'
-import type { Settings } from '../api'
+import { useEffect, useState, type FormEvent } from 'react'
+import { api, type PaperSummary, type Settings } from '../api'
+import { formatMoney } from '../money'
 import { useMe } from '../auth'
 import { parseSymbols, readNumbers, SYMBOL_RE, type NumberSpec } from '../forms'
 import { Field, Segmented, StatusLine } from './common'
@@ -94,8 +95,36 @@ export function TradingSection() {
 // ---------- paper account ----------
 
 const PAPER_SPECS: NumberSpec[] = [
-  { key: 'starting_balance', label: 'Starting balance ($)', hint: 'Used when the paper account is created or reset.', min: 1000, max: 100_000_000 },
+  { key: 'starting_balance', label: 'Starting balance ($)', hint: 'Used when the paper account is created or reset. Save it before pressing Reset.', min: 1000, max: 100_000_000 },
 ]
+
+/** The paper account's current balance and the reset button. */
+function PaperBalance() {
+  const [s, setS] = useState<PaperSummary | null>(null)
+  const action = useAction()
+  useEffect(() => {
+    api<PaperSummary>('GET', '/api/paper').then(setS).catch(() => undefined)
+  }, [])
+  async function reset() {
+    if (!window.confirm('Reset the paper account to the saved starting balance? Working orders are cancelled and open paper positions are set aside. Finished paper trades stay in Account Manager.')) return
+    await action.run(async () => setS(await api<PaperSummary>('POST', '/api/paper/reset')), 'Paper account reset.')
+  }
+  if (!s) return <p className="muted">Loading the paper account…</p>
+  const a = s.account
+  return (
+    <div className="form">
+      <p>
+        Balance <b className="num">{formatMoney(a.total)}</b> (cash <span className="num">{formatMoney(a.cash)}</span>, {s.positions.length} open position
+        {s.positions.length === 1 ? '' : 's'}) · started at <span className="num">{formatMoney(a.starting_balance)}</span>
+        {a.reset_at && <span className="muted"> · last reset {new Date(a.reset_at).toLocaleDateString()}</span>}
+      </p>
+      <div className="actions">
+        <button type="button" className="btn btn-danger" disabled={action.busy} onClick={() => void reset()}>Reset paper account</button>
+      </div>
+      <StatusLine status={action.status} />
+    </div>
+  )
+}
 
 export function PaperSection() {
   const me = useMe()
@@ -115,7 +144,7 @@ export function PaperSection() {
   return (
     <form className="panel form" onSubmit={submit}>
       <h2>Paper account</h2>
-      <p className="muted">The paper account itself (balance and reset) arrives in Stage 4. These settings are kept for it.</p>
+      <PaperBalance />
       <NumberFields specs={PAPER_SPECS} draft={draft} setDraft={setDraft} />
       <div className="field">
         <span>Fill rule</span>

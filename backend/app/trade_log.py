@@ -73,10 +73,15 @@ def result(t: ClosedTrade) -> tuple[Decimal, Decimal | None]:
     return ledger.trade_result(t.direction, t.kind, t.quantity, t.entry_price, t.exit_price, t.fees)
 
 
+def editable(t: ClosedTrade) -> bool:
+    """Only real trades typed in by hand can be changed. Paper trades are the engine's record."""
+    return t.mode == "real" and t.source == "manual"
+
+
 def trade_out(t: ClosedTrade) -> dict:
     dollars, pct = result(t)
     return {
-        "id": t.id, "mode": t.mode, "source": t.source, "editable": t.source == "manual",
+        "id": t.id, "mode": t.mode, "source": t.source, "editable": editable(t),
         "kind": t.kind, "symbol": t.symbol, "option_type": t.option_type,
         "strike": float(t.strike) if t.strike is not None else None,
         "expiration": t.expiration.isoformat() if t.expiration else None,
@@ -99,11 +104,10 @@ def stats_out(trades: list[ClosedTrade]) -> dict:
     }
 
 
-def account_value(db: Session, user_id: int, mode: str, paper_start: Decimal) -> Decimal:
-    """Real: money put into the short-term account plus every real trade's result.
-    Paper: the paper starting balance plus every paper trade's result."""
-    base = capital.put_in(db, user_id, "short_term") if mode == "real" else paper_start
-    return base + sum((result(t)[0] for t in query(db, user_id, mode)), ledger.ZERO)
+def real_account_value(db: Session, user_id: int) -> Decimal:
+    """Money put into the short-term account plus every real trade's result."""
+    return capital.put_in(db, user_id, "short_term") + sum((result(t)[0] for t in query(db, user_id, "real")),
+                                                           ledger.ZERO)
 
 
 def to_utc(local: datetime, tz: ZoneInfo) -> datetime:
@@ -125,7 +129,7 @@ def csv_text(trades: list[ClosedTrade], tz: ZoneInfo) -> str:
         o = trade_out(t)
         w.writerow([
             t.closed_at.astimezone(tz).strftime("%Y-%m-%d %H:%M"), t.opened_at.astimezone(tz).strftime("%Y-%m-%d %H:%M"),
-            t.mode, "manual" if t.source == "manual" else t.source, o["label"], t.kind, t.direction,
+            t.mode, t.source, o["label"], t.kind, t.direction,
             ledger.fmt_qty(t.quantity), ledger.fmt_qty(t.entry_price), ledger.fmt_qty(t.exit_price),
             f"{o['fees']:.2f}", f"{o['result']:.2f}",
             "" if o["result_pct"] is None else f"{o['result_pct']:.2f}",

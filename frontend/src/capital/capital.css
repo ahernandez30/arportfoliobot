@@ -135,11 +135,6 @@
   white-space: nowrap;
 }
 
-.table td.right,
-.table th.right {
-  text-align: right;
-}
-
 .table tr.clickable {
   cursor: pointer;
 }

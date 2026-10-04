@@ -233,6 +233,7 @@ export type TradeStats = {
 export type TradeListing = {
   mode: 'paper' | 'real'
   account_value: number
+  account_value_estimated: boolean
   stats: TradeStats
   trades: ClosedTrade[]
   symbols: string[]
@@ -241,5 +242,105 @@ export type TradeListing = {
 export type Totals = {
   long_term: CapitalTotals & { has_records: boolean }
   short_term: { value: number; has_records: boolean }
+  paper: PaperAccountView & { open_positions: number }
   prices: { available: boolean; detail: string | null }
+}
+
+// ---------- paper trading and Live Trader (Stage 4) ----------
+
+export type PaperAccountView = {
+  cash: number
+  reserved: number
+  free_cash: number
+  positions_value: number
+  total: number
+  open_pl: number
+  realized_today: number
+  starting_balance: number
+  reset_at: string | null
+  estimated: boolean
+}
+
+export type PaperPositionView = {
+  id: number
+  source: string
+  label: string
+  symbol: string
+  option_type: OptionType
+  strike: number
+  expiration: string
+  quantity: number
+  entry_price: number
+  bid: number | null
+  ask: number | null
+  price: number | null
+  cost: number
+  value: number | null
+  pl: number | null
+  pl_pct: number | null
+  take_profit_price: number | null
+  stop_loss_price: number | null
+  opened_at: string
+  days_left: number
+  expiring_soon: boolean
+}
+
+export type PaperOrderView = {
+  id: number
+  source: string
+  side: 'buy' | 'sell'
+  intent: 'open' | 'close'
+  label: string
+  occ_symbol: string
+  quantity: number
+  limit_price: number | null
+  take_profit_pct: number | null
+  stop_loss_pct: number | null
+  close_reason: string | null
+  status: 'working' | 'filled' | 'cancelled' | 'rejected'
+  status_detail: string
+  fill_price: number | null
+  created_at: string
+  done_at: string | null
+  position_id: number | null
+  bid?: number | null
+  ask?: number | null
+}
+
+export type PaperSummary = {
+  account: PaperAccountView
+  positions: PaperPositionView[]
+  orders: PaperOrderView[]
+  recent: PaperOrderView[]
+  controls: { halted: boolean; auto_paused: boolean; auto_trading: 'off' | 'paper' }
+  fill_rule: 'bid_ask' | 'mid'
+  prices: { available: boolean; detail: string | null }
+  order?: PaperOrderView
+}
+
+export type PaperEventView = { id: number; at: string; event: string; source: string; detail: string }
+
+export type ChainSide = { symbol: string; bid: number | null; ask: number | null; last: number | null; volume: number | null; open_interest: number | null }
+export type ChainRow = { strike: number; call: ChainSide | null; put: ChainSide | null }
+export type Chain = {
+  symbol: string
+  expiration: string
+  realtime: boolean
+  underlying: { last: number | null; change_pct: number | null; description: string } | null
+  rows: ChainRow[]
+}
+
+export type OrderReview = {
+  label: string
+  occ_symbol: string
+  bid: number | null
+  ask: number | null
+  max_cost: number
+  fill_now: boolean
+  fill_price: number | null
+  market_open: boolean
+  take_profit_price: number | null
+  stop_loss_price: number | null
+  problem: string | null
+  fill_rule: 'bid_ask' | 'mid'
 }

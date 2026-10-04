@@ -436,3 +436,8 @@ textarea.input {
 .page-head .actions {
   margin-left: auto;
 }
+
+.table td.right,
+.table th.right {
+  text-align: right;
+}

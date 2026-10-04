@@ -1,0 +1,191 @@
+/* Live Trader. */
+
+.paper-banner {
+  background: var(--paper);
+  color: var(--on-paper);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border-radius: var(--radius-control);
+  padding: 10px 14px;
+}
+
+.status-strip {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.status-strip.halted {
+  border-color: var(--loss);
+}
+
+.status-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  align-items: center;
+}
+
+.btn-stop {
+  background: var(--loss);
+  border-color: var(--loss);
+  color: #fff;
+}
+
+.btn-stop:hover:not(:disabled) {
+  filter: brightness(1.08);
+  border-color: var(--loss);
+}
+
+.trader-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(300px, 2fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 1000px) {
+  .trader-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.trader-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: sticky;
+  top: 16px;
+}
+
+@media (max-width: 1000px) {
+  .trader-side {
+    position: static;
+  }
+}
+
+.chain-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.symbol-input {
+  width: 110px;
+  text-transform: uppercase;
+}
+
+.chain-under {
+  margin: 0;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.exp-row {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.chain-wrap {
+  max-height: 560px;
+  overflow-y: auto;
+}
+
+.chain-table th.center,
+.chain-table td.center {
+  text-align: center;
+}
+
+.chain-table td {
+  padding: 0;
+}
+
+.chain-table td.strike {
+  padding: 10px 12px;
+  font-weight: 650;
+  background: var(--bg);
+}
+
+.price-cell.itm {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+
+.price-cell.picked {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.price-btn {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: right;
+  cursor: pointer;
+}
+
+.price-btn:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.ticket-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ticket-contract {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.ticket-sums {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.ticket-sums dt {
+  color: var(--text-2);
+}
+
+.ticket-sums dd {
+  margin: 0;
+  text-align: right;
+}
+
+.review {
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-control);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.review p {
+  margin: 0;
+}
+
+.activity {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+  max-height: 360px;
+  overflow-y: auto;
+}

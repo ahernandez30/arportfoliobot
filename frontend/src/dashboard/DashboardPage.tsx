@@ -3,7 +3,8 @@ import { Link } from 'react-router'
 import ReactGridLayout, { useContainerWidth } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
-import { api, type Totals as TotalsData } from '../api'
+import { api, type PaperSummary, type Totals as TotalsData } from '../api'
+import { changeClass, formatPct, formatPrice } from '../market/bars'
 import { useMe } from '../auth'
 import ChartPanel from '../market/ChartPanel'
 import { Credits, MarketState } from '../market/MarketHeader'
@@ -40,8 +41,20 @@ function Totals() {
       cls: '',
       to: '/accounts',
     },
-    { label: 'Paper account', value: '—', note: 'Arrives in Stage 4', cls: '', to: null },
-    { label: 'Open profit or loss', value: '—', note: 'Arrives in Stage 4', cls: '', to: null },
+    {
+      label: 'Paper account',
+      value: t ? formatMoney(t.paper.total) : '—',
+      note: t ? `${formatMoney(t.paper.cash)} cash` : '',
+      cls: '',
+      to: '/live',
+    },
+    {
+      label: 'Open profit or loss',
+      value: t ? formatMoney(t.paper.open_pl, true) : '—',
+      note: t ? `Paper, ${t.paper.open_positions} open position${t.paper.open_positions === 1 ? '' : 's'}` : '',
+      cls: t ? changeClass(t.paper.open_pl) : '',
+      to: '/live',
+    },
   ]
   return (
     <div className="totals">
@@ -52,6 +65,39 @@ function Totals() {
           <span className="muted stat-note">{i.note}</span>
         </div>
       ))}
+    </div>
+  )
+}
+
+function OpenTrades() {
+  const [s, setS] = useState<PaperSummary | null>(null)
+  useEffect(() => {
+    const load = () => document.visibilityState === 'visible' && api<PaperSummary>('GET', '/api/paper').then(setS).catch(() => undefined)
+    void load()
+    const timer = window.setInterval(load, 15_000)
+    return () => window.clearInterval(timer)
+  }, [])
+  if (!s) return <p className="muted">Loading…</p>
+  if (!s.positions.length) return <p className="muted">No open paper trades. Place one in <Link to="/live">Live Trader</Link>.</p>
+  return (
+    <div className="table-wrap">
+      <table className="table">
+        <thead>
+          <tr><th>Contract</th><th className="right">Qty</th><th className="right">Entry</th><th className="right">Current</th><th className="right">P/L $</th><th className="right">P/L %</th></tr>
+        </thead>
+        <tbody>
+          {s.positions.map((p) => (
+            <tr key={p.id}>
+              <td><span className="sym">{p.label}</span></td>
+              <td className="num right">{p.quantity}</td>
+              <td className="num right">{formatPrice(p.entry_price)}</td>
+              <td className="num right">{formatPrice(p.price)}</td>
+              <td className={`num right ${changeClass(p.pl)}`}>{formatMoney(p.pl, true)}</td>
+              <td className={`num right ${changeClass(p.pl_pct)}`}>{formatPct(p.pl_pct)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }
@@ -71,7 +117,7 @@ function TileBody({ tile, onChange, onPickSymbol }: { tile: Tile; onChange: (c: 
         />
       )
     case 'trades':
-      return <p className="muted">Open trades appear here from Stage 4 (paper trading).</p>
+      return <OpenTrades />
   }
 }
 

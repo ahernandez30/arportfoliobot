@@ -334,3 +334,126 @@ class ClosedTrade(Base):
     close_reason: Mapped[str] = mapped_column(String(16))
     notes: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # For paper trades: the paper position it came from.
+    paper_position_id: Mapped[int | None] = mapped_column(ForeignKey("paper_positions.id", ondelete="SET NULL"))
+
+
+# ---------- Stage 4: paper trading ----------
+
+
+class PaperAccount(Base):
+    """A paper account. Each user has a "main" one; Stage 6 adds sub-accounts so two trade
+    structures can run on the same signals without mixing results (plan section 8)."""
+
+    __tablename__ = "paper_accounts"
+    __table_args__ = (UniqueConstraint("user_id", "name", name="paper_accounts_user_name"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(32), default="main")
+    cash: Mapped[Decimal] = mapped_column(Numeric(16, 2))
+    starting_balance: Mapped[Decimal] = mapped_column(Numeric(16, 2))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PaperOrder(Base):
+    """A paper order for one option contract. Opening orders buy; closing orders sell all or
+    part of a position. A working order fills when the live quote reaches its limit."""
+
+    __tablename__ = "paper_orders"
+    __table_args__ = (
+        CheckConstraint("side IN ('buy', 'sell')", name="paper_orders_side_check"),
+        CheckConstraint("intent IN ('open', 'close')", name="paper_orders_intent_check"),
+        CheckConstraint("status IN ('working', 'filled', 'cancelled', 'rejected')", name="paper_orders_status_check"),
+        CheckConstraint("quantity > 0", name="paper_orders_quantity_check"),
+        CheckConstraint("option_type IN ('call', 'put')", name="paper_orders_type_check"),
+        Index("paper_orders_working", "status", postgresql_where="status = 'working'"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("paper_accounts.id", ondelete="CASCADE"), index=True)
+    # "manual", or the strategy that placed it (Stage 6).
+    source: Mapped[str] = mapped_column(String(64), default="manual")
+    side: Mapped[str] = mapped_column(String(4))
+    intent: Mapped[str] = mapped_column(String(8))
+    position_id: Mapped[int | None] = mapped_column(ForeignKey("paper_positions.id", ondelete="SET NULL"))
+    symbol: Mapped[str] = mapped_column(String(16))
+    option_type: Mapped[str] = mapped_column(String(4))
+    strike: Mapped[Decimal] = mapped_column(Numeric(12, 3))
+    expiration: Mapped[date] = mapped_column(Date)
+    occ_symbol: Mapped[str] = mapped_column(String(32))
+    quantity: Mapped[int] = mapped_column(BigInteger)
+    # None means "at the market": fill at the current quote.
+    limit_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
+    # For opening orders: the exits given to the position once filled (percent of the fill price).
+    take_profit_pct: Mapped[Decimal | None] = mapped_column(Numeric(8, 3))
+    stop_loss_pct: Mapped[Decimal | None] = mapped_column(Numeric(8, 3))
+    # Why a closing order was sent: take_profit, stop_loss, manual, ...
+    close_reason: Mapped[str | None] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(String(12), default="working")
+    status_detail: Mapped[str] = mapped_column(Text, default="")
+    fill_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Stage 6: strategy + symbol + timeframe + candle time, so a signal never orders twice.
+    idempotency_key: Mapped[str | None] = mapped_column(String(200), unique=True)
+
+
+class PaperPosition(Base):
+    """An open (or finished) paper option position."""
+
+    __tablename__ = "paper_positions"
+    __table_args__ = (
+        CheckConstraint("status IN ('open', 'closed', 'voided')", name="paper_positions_status_check"),
+        CheckConstraint("quantity >= 0", name="paper_positions_quantity_check"),
+        CheckConstraint("option_type IN ('call', 'put')", name="paper_positions_type_check"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("paper_accounts.id", ondelete="CASCADE"), index=True)
+    source: Mapped[str] = mapped_column(String(64), default="manual")
+    symbol: Mapped[str] = mapped_column(String(16))
+    option_type: Mapped[str] = mapped_column(String(4))
+    strike: Mapped[Decimal] = mapped_column(Numeric(12, 3))
+    expiration: Mapped[date] = mapped_column(Date)
+    occ_symbol: Mapped[str] = mapped_column(String(32))
+    # Contracts still held; goes down with partial closes.
+    quantity: Mapped[int] = mapped_column(BigInteger)
+    entry_price: Mapped[Decimal] = mapped_column(Numeric(14, 4))
+    take_profit_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
+    stop_loss_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
+    status: Mapped[str] = mapped_column(String(8), default="open")
+    opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PaperEvent(Base):
+    """The permanent log of every paper order, fill, close and account change (plan section 8)."""
+
+    __tablename__ = "paper_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    account_id: Mapped[int | None] = mapped_column(ForeignKey("paper_accounts.id", ondelete="SET NULL"))
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    event: Mapped[str] = mapped_column(String(32))
+    source: Mapped[str] = mapped_column(String(64), default="manual")
+    order_id: Mapped[int | None] = mapped_column(BigInteger)
+    position_id: Mapped[int | None] = mapped_column(BigInteger)
+    detail: Mapped[str] = mapped_column(Text, default="")
+
+
+class TradingControls(Base):
+    """Per-user switches that must take effect at once and survive a restart (plan section 10)."""
+
+    __tablename__ = "trading_controls"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    # "Stop all trading": open orders cancelled, no new orders until resumed.
+    halted: Mapped[bool] = mapped_column(Boolean, default=False)
+    # "Pause automatic trading": the strategy places nothing new (Stage 6).
+    auto_paused: Mapped[bool] = mapped_column(Boolean, default=False)
+    changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

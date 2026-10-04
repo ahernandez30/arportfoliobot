@@ -83,7 +83,7 @@ def test_stats_and_filters(rafa, engine):
     # Paper and real are never mixed.
     paper = rafa.get("/api/trades?mode=paper&period=all").json()
     assert paper["stats"]["count"] == 1 and paper["stats"]["total"] == 100
-    assert paper["account_value"] == 100_100  # paper starting balance + paper results
+    assert paper["account_value"] == 100_000  # the paper account itself (these trades were inserted directly)
     assert paper["trades"][0]["editable"] is False
 
 

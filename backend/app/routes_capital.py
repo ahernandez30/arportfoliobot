@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
-from app import capital, ledger, routes_market, trade_log, user_settings
+from app import capital, ledger, paper_view, routes_market, trade_log, user_settings
 from app.auth import current_user
 from app.db import get_db
 from app.inputs import FlowIn, ManualTrade, NewPosition, NotesEdit, PositionEdit, PositionTrade
@@ -208,7 +208,7 @@ Period = Literal["today", "week", "month", "year", "all", "custom"]
 
 
 @router.get("/api/trades")
-def list_trades(
+async def list_trades(
     mode: Literal["paper", "real"] = "real",
     period: Period = "month",
     start: date | None = None,
@@ -218,10 +218,16 @@ def list_trades(
     db: Session = Depends(get_db),
 ) -> dict:
     trades = _filtered(db, user, mode, period, start, end, symbol)
-    paper_start = Decimal(str(user_settings.load(db, user.id).paper.starting_balance))
+    if mode == "real":
+        value, estimated = trade_log.real_account_value(db, user.id), False
+    else:
+        # The paper account itself: cash plus open positions at live prices.
+        acct = (await paper_view.summary(db, user.id, routes_market.providers.get(db, user.id)))["account"]
+        value, estimated = Decimal(str(acct["total"])), acct["estimated"]
     return {
         "mode": mode,
-        "account_value": capital.money(trade_log.account_value(db, user.id, mode, paper_start)),
+        "account_value": capital.money(value),
+        "account_value_estimated": estimated,
         "stats": trade_log.stats_out(trades),
         "trades": [trade_log.trade_out(t) for t in trades],
         "symbols": sorted({t.symbol for t in trade_log.query(db, user.id, mode)}),
@@ -274,7 +280,7 @@ def _own_closed(db: Session, user: User, trade_id: int) -> ClosedTrade:
 @router.put("/api/trades/{trade_id}")
 def edit_trade(trade_id: int, body: ManualTrade, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     t = _own_closed(db, user, trade_id)
-    if t.source != "manual":
+    if not trade_log.editable(t):
         raise HTTPException(409, "Trades placed by the site cannot be changed, only their notes.")
     _apply_manual(t, body, _tz(db, user))
     db.commit()
@@ -293,7 +299,7 @@ def edit_trade_notes(trade_id: int, body: NotesEdit, user: User = Depends(curren
 @router.delete("/api/trades/{trade_id}")
 def delete_trade(trade_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     t = _own_closed(db, user, trade_id)
-    if t.source != "manual":
+    if not trade_log.editable(t):
         raise HTTPException(409, "Trades placed by the site are a permanent record and cannot be deleted.")
     db.delete(t)
     db.commit()
@@ -307,12 +313,13 @@ def delete_trade(trade_id: int, user: User = Depends(current_user), db: Session 
 async def totals(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     """The dashboard's account totals tile."""
     summary = await _summary(db, user)
-    paper_start = Decimal(str(user_settings.load(db, user.id).paper.starting_balance))
+    p = await paper_view.summary(db, user.id, routes_market.providers.get(db, user.id))
     return {
         "long_term": {**summary["totals"], "has_records": capital.has_records(db, user.id)},
         "short_term": {
-            "value": capital.money(trade_log.account_value(db, user.id, "real", paper_start)),
+            "value": capital.money(trade_log.real_account_value(db, user.id)),
             "has_records": bool(capital.flows(db, user.id, "short_term") or trade_log.query(db, user.id, "real")),
         },
+        "paper": {**p["account"], "open_positions": len(p["positions"])},
         "prices": summary["prices"],
     }

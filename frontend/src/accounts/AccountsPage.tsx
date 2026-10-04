@@ -146,7 +146,7 @@ export default function AccountsPage() {
         <div className="panel">
           <div className="totals">
             <Stat label={mode === 'paper' ? 'Paper account value' : 'Account value'} value={formatMoney(data.account_value)}
-              note={mode === 'paper' ? 'Starting balance plus paper results' : 'Money put in plus all real results'} />
+              note={mode === 'paper' ? (data.account_value_estimated ? 'Cash plus open positions (some at cost)' : 'Cash plus open positions') : 'Money put in plus all real results'} />
             <Stat label={`Result, ${PERIOD_LABEL[period]}`} value={formatMoney(s.total, true)} cls={changeClass(s.total)} note={`${s.count} trade${s.count === 1 ? '' : 's'}`} />
             <Stat label="Win rate" value={s.win_rate == null ? '—' : `${s.win_rate.toFixed(1)}%`} note={`${s.wins} won · ${s.losses} lost`} />
             <Stat label="Average win" value={formatMoney(s.average_win, true)} cls={changeClass(s.average_win)} />
@@ -169,7 +169,7 @@ export default function AccountsPage() {
           <p className="muted">Loading…</p>
         ) : data.trades.length === 0 ? (
           <p className="muted">
-            {mode === 'paper' ? 'No paper trades in this period. Paper trades appear here by themselves from Stage 4.' : 'No real trades in this period. Use “Add trade” to enter one.'}
+            {mode === 'paper' ? 'No paper trades in this period. Paper trades appear here by themselves when they close in Live Trader.' : 'No real trades in this period. Use “Add trade” to enter one.'}
           </p>
         ) : (
           <div className="table-wrap">
