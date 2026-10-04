@@ -201,3 +201,13 @@ def test_holding_helper_matches_api(rafa, db):
     rafa.post("/api/capital/positions", json=tsla_call())
     (p,) = capital.positions(db, 1)
     assert capital.holding(p, capital.trades_by_position(db, 1)[p.id]).quantity == 2
+
+
+def test_expired_options_are_not_quoted():
+    from app.models import LongTermPosition
+    live = LongTermPosition(kind="option", symbol="TSLA", option_type="call", strike=450,
+                            expiration=date(2026, 12, 18))
+    gone = LongTermPosition(kind="option", symbol="SPY", option_type="put", strike=500,
+                            expiration=date(2026, 9, 18))
+    stock = LongTermPosition(kind="stock", symbol="TSLA")
+    assert capital.quote_symbols([live, gone, stock], date(2026, 10, 4)) == ["TSLA", "TSLA261218C00450000", "SPY"]

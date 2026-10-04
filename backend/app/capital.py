@@ -105,19 +105,23 @@ class Mark:
     underlying: Decimal | None = None
 
 
-def quote_symbols(items: Sequence[LongTermPosition]) -> list[str]:
+def quote_symbols(items: Sequence[LongTermPosition], today: date) -> list[str]:
+    """Stocks, their options, and each option's stock. Expired options are no longer quoted."""
     out: list[str] = []
     for p in items:
-        wanted = [p.symbol] if p.kind == "stock" else [p.symbol, ledger.occ_symbol(p.symbol, p.option_type, p.strike, p.expiration)]
+        wanted = [p.symbol]
+        if p.kind == "option" and p.expiration >= today:
+            wanted.append(ledger.occ_symbol(p.symbol, p.option_type, p.strike, p.expiration))
         for s in wanted:
             if s not in out:
                 out.append(s)
     return out
 
 
-async def fetch_quotes(md: MarketData | None, items: Sequence[LongTermPosition]) -> tuple[dict[str, Quote], str | None]:
+async def fetch_quotes(md: MarketData | None, items: Sequence[LongTermPosition],
+                       today: date) -> tuple[dict[str, Quote], str | None]:
     """Today's quotes for the positions and their underlying stocks, plus a problem message if any."""
-    symbols = quote_symbols(items)
+    symbols = quote_symbols(items, today)
     if md is None or not symbols:
         return {}, None
     try:
@@ -244,8 +248,9 @@ async def build_summary(db: Session, user_id: int, md: MarketData | None) -> tup
     items = positions(db, user_id)
     by_pos = trades_by_position(db, user_id)
     held = [p for p in items if holding(p, by_pos.get(p.id, [])).quantity > 0]
-    quotes, problem = await fetch_quotes(md, held)
-    return summarize(items, by_pos, flows(db, user_id, "long_term"), quotes, today_ny()), problem
+    today = today_ny()
+    quotes, problem = await fetch_quotes(md, held, today)
+    return summarize(items, by_pos, flows(db, user_id, "long_term"), quotes, today), problem
 
 
 # ---------- daily snapshots ----------
