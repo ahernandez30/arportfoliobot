@@ -1,18 +1,22 @@
-"""Database tables for accounts, login sessions, invites, settings and stored keys.
+"""Database tables: accounts, login sessions, invites, settings, stored keys, layouts,
+long-term capital and the short-term trade log.
 
 Every table holding a user's own data has a user_id column, and every query for
 it filters on the logged-in user (see the tests in test_isolation.py).
 """
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
     LargeBinary,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -195,3 +199,138 @@ class MarketFeedStatus(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     # Last time a price actually arrived (for spotting a stale feed, plan section 10).
     last_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+# ---------- Stage 3: long-term capital and the short-term trade log ----------
+
+ACCOUNTS = ("long_term", "short_term")
+
+
+class CapitalFlow(Base):
+    """Money put into or taken out of an account, kept apart from gains (plan section 6)."""
+
+    __tablename__ = "capital_flows"
+    __table_args__ = (
+        CheckConstraint("account IN ('long_term', 'short_term')", name="capital_flows_account_check"),
+        CheckConstraint("kind IN ('deposit', 'withdrawal')", name="capital_flows_kind_check"),
+        CheckConstraint("amount > 0", name="capital_flows_amount_check"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    account: Mapped[str] = mapped_column(String(16))
+    kind: Mapped[str] = mapped_column(String(16))
+    amount: Mapped[Decimal] = mapped_column(Numeric(16, 2))
+    day: Mapped[date] = mapped_column(Date)
+    note: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class LongTermPosition(Base):
+    """One stock or one option contract held long term. Its buys and sells are in
+    long_term_trades; quantity, average cost and realized gain are worked out from them."""
+
+    __tablename__ = "long_term_positions"
+    __table_args__ = (
+        CheckConstraint("kind IN ('option', 'stock')", name="lt_positions_kind_check"),
+        CheckConstraint(
+            "(kind = 'stock' AND option_type IS NULL AND strike IS NULL AND expiration IS NULL)"
+            " OR (kind = 'option' AND option_type IN ('call', 'put') AND strike > 0 AND expiration IS NOT NULL)",
+            name="lt_positions_contract_check",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(8))
+    symbol: Mapped[str] = mapped_column(String(16))
+    option_type: Mapped[str | None] = mapped_column(String(4))
+    strike: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
+    expiration: Mapped[date | None] = mapped_column(Date)
+    note: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class LongTermTrade(Base):
+    """A buy or sell of a long-term position. Price is as quoted: per share for stock, per
+    share of the contract for options (5.20 means $520 for one contract)."""
+
+    __tablename__ = "long_term_trades"
+    __table_args__ = (
+        CheckConstraint("side IN ('buy', 'sell')", name="lt_trades_side_check"),
+        CheckConstraint("quantity > 0", name="lt_trades_quantity_check"),
+        CheckConstraint("price >= 0", name="lt_trades_price_check"),
+        CheckConstraint("fees >= 0", name="lt_trades_fees_check"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    position_id: Mapped[int] = mapped_column(ForeignKey("long_term_positions.id", ondelete="CASCADE"), index=True)
+    side: Mapped[str] = mapped_column(String(4))
+    quantity: Mapped[Decimal] = mapped_column(Numeric(16, 4))
+    price: Mapped[Decimal] = mapped_column(Numeric(14, 4))
+    fees: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    day: Mapped[date] = mapped_column(Date)
+    note: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CapitalSnapshot(Base):
+    """Long-term capital at the end of a market day, for the capital-over-time chart."""
+
+    __tablename__ = "capital_snapshots"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    total: Mapped[Decimal] = mapped_column(Numeric(16, 2))
+    put_in: Mapped[Decimal] = mapped_column(Numeric(16, 2))
+    positions_value: Mapped[Decimal] = mapped_column(Numeric(16, 2))
+    cash: Mapped[Decimal] = mapped_column(Numeric(16, 2))
+    # True when some position had no price and was counted at its cost.
+    estimated: Mapped[bool] = mapped_column(Boolean, default=False)
+    taken_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ClosedTrade(Base):
+    """A finished short-term trade (Account Manager). Paper trades are written here by the
+    paper engine (Stage 4 on); real ones are typed in by hand until a broker is connected."""
+
+    __tablename__ = "closed_trades"
+    __table_args__ = (
+        CheckConstraint("mode IN ('paper', 'real')", name="closed_trades_mode_check"),
+        CheckConstraint("kind IN ('option', 'stock')", name="closed_trades_kind_check"),
+        CheckConstraint("direction IN ('long', 'short')", name="closed_trades_direction_check"),
+        CheckConstraint("quantity > 0", name="closed_trades_quantity_check"),
+        CheckConstraint("entry_price >= 0 AND exit_price >= 0 AND fees >= 0", name="closed_trades_prices_check"),
+        CheckConstraint(
+            "close_reason IN ('take_profit', 'stop_loss', 'signal', 'manual', 'time', 'expired')",
+            name="closed_trades_reason_check",
+        ),
+        CheckConstraint(
+            "(kind = 'stock' AND option_type IS NULL AND strike IS NULL AND expiration IS NULL)"
+            " OR (kind = 'option' AND option_type IN ('call', 'put') AND strike > 0 AND expiration IS NOT NULL)",
+            name="closed_trades_contract_check",
+        ),
+        Index("closed_trades_user_mode_closed", "user_id", "mode", "closed_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    mode: Mapped[str] = mapped_column(String(8))
+    # "manual" for trades typed in here; otherwise what placed it (e.g. a strategy name).
+    source: Mapped[str] = mapped_column(String(64), default="manual")
+    kind: Mapped[str] = mapped_column(String(8))
+    symbol: Mapped[str] = mapped_column(String(16))
+    option_type: Mapped[str | None] = mapped_column(String(4))
+    strike: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
+    expiration: Mapped[date | None] = mapped_column(Date)
+    direction: Mapped[str] = mapped_column(String(8), default="long")
+    quantity: Mapped[Decimal] = mapped_column(Numeric(16, 4))
+    entry_price: Mapped[Decimal] = mapped_column(Numeric(14, 4))
+    exit_price: Mapped[Decimal] = mapped_column(Numeric(14, 4))
+    fees: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    closed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    close_reason: Mapped[str] = mapped_column(String(16))
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

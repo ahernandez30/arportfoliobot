@@ -1,6 +1,7 @@
 """Background worker. Runs whether or not anyone has the site open.
 
 Stage 2: heartbeat, plus live price feeds for symbols users have on screen (app.feed).
+Stage 3: end-of-day long-term capital snapshots (app.snapshots).
 Strategies and paper orders come in later stages.
 """
 import asyncio
@@ -8,6 +9,7 @@ import logging
 import signal
 import threading
 
+from app import snapshots
 from app.config import get_settings
 from app.db import get_engine, record_heartbeat
 from app.feed import FeedManager
@@ -35,6 +37,7 @@ async def run_async(stop: asyncio.Event, *, feeds: bool = True) -> None:
     tasks = [asyncio.create_task(heartbeat(stop))]
     if feeds:
         tasks.append(asyncio.create_task(FeedManager(get_engine()).run(stop)))
+        tasks.append(asyncio.create_task(snapshots.run(get_engine(), stop)))
     await asyncio.gather(*tasks)
     log.info("worker stopped")
 
