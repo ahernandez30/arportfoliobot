@@ -96,18 +96,6 @@
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
-.page-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.page-head .actions {
-  margin-left: auto;
-}
-
 .charts-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

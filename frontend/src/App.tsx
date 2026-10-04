@@ -11,6 +11,8 @@ import Shell from './Shell'
 // Charts and the dashboard grid are large; load them only once signed in.
 const DashboardPage = lazy(() => import('./dashboard/DashboardPage'))
 const ChartsPage = lazy(() => import('./market/ChartsPage'))
+const CapitalPage = lazy(() => import('./capital/CapitalPage'))
+const AccountsPage = lazy(() => import('./accounts/AccountsPage'))
 
 function SignedIn() {
   const { me, loading } = useAuth()
@@ -33,8 +35,8 @@ export default function App() {
           <Route path="/invite/:token" element={<InvitePage />} />
           <Route element={<SignedIn />}>
             <Route index element={<DashboardPage />} />
-            <Route path="capital" element={<Placeholder title="Capital Tracking" stage={3} />} />
-            <Route path="accounts" element={<Placeholder title="Account Manager" stage={3} />} />
+            <Route path="capital" element={<CapitalPage />} />
+            <Route path="accounts" element={<AccountsPage />} />
             <Route path="live" element={<Placeholder title="Live Trader" stage={4} />} />
             <Route path="charts" element={<ChartsPage />} />
             <Route path="master" element={<Placeholder title="Master Chart" stage={5} />} />

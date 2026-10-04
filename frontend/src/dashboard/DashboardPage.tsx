@@ -1,13 +1,15 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { Link } from 'react-router'
 import ReactGridLayout, { useContainerWidth } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
-import { api } from '../api'
+import { api, type Totals as TotalsData } from '../api'
 import { useMe } from '../auth'
 import ChartPanel from '../market/ChartPanel'
 import { Credits, MarketState } from '../market/MarketHeader'
 import { useSavedLayout } from '../market/useSaved'
 import Watchlist from '../market/Watchlist'
+import { formatMoney } from '../money'
 import { addTile, applyPositions, COLS, removeTile, samePositions, stackOrder, TILE_INFO, updateTile, type Dashboard, type Tile, type TileKind } from './tiles'
 import './dashboard.css'
 
@@ -15,19 +17,39 @@ const ROW_HEIGHT = 40
 const PHONE_WIDTH = 700
 
 function Totals() {
+  const [t, setT] = useState<TotalsData | null>(null)
+  useEffect(() => {
+    const load = () => api<TotalsData>('GET', '/api/totals').then(setT).catch(() => undefined)
+    void load()
+    const timer = window.setInterval(load, 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
+  const lt = t?.long_term
   const items = [
-    { label: 'Long-term capital', note: 'Stage 3' },
-    { label: 'Short-term account', note: 'Stage 3' },
-    { label: 'Paper account', note: 'Stage 4' },
-    { label: 'Open profit or loss', note: 'Stage 4' },
+    {
+      label: 'Long-term capital',
+      value: lt?.has_records ? formatMoney(lt.total) : '—',
+      note: lt?.has_records ? `${formatMoney(lt.gain, true)} total gain` : 'Add positions in Capital Tracking',
+      cls: '',
+      to: '/capital',
+    },
+    {
+      label: 'Short-term account',
+      value: t?.short_term.has_records ? formatMoney(t.short_term.value) : '—',
+      note: t?.short_term.has_records ? 'Real trades, Account Manager' : 'Add deposits in Account Manager',
+      cls: '',
+      to: '/accounts',
+    },
+    { label: 'Paper account', value: '—', note: 'Arrives in Stage 4', cls: '', to: null },
+    { label: 'Open profit or loss', value: '—', note: 'Arrives in Stage 4', cls: '', to: null },
   ]
   return (
     <div className="totals">
       {items.map((i) => (
         <div key={i.label} className="stat">
-          <span className="stat-label">{i.label}</span>
-          <span className="stat-value num">—</span>
-          <span className="muted stat-note">Arrives in {i.note}</span>
+          <span className="stat-label">{i.to ? <Link to={i.to}>{i.label}</Link> : i.label}</span>
+          <span className={`stat-value num ${i.cls}`}>{i.value}</span>
+          <span className="muted stat-note">{i.note}</span>
         </div>
       ))}
     </div>

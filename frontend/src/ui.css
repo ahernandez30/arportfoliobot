@@ -392,3 +392,47 @@ textarea.input {
   flex-wrap: wrap;
   margin-bottom: 16px;
 }
+
+/* ---------- stat tiles (dashboard totals, Capital Tracking, Account Manager) ---------- */
+
+.totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stat-label {
+  color: var(--text-2);
+  font-size: 0.8rem;
+}
+
+.stat-value {
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+.stat-note {
+  font-size: 0.75rem;
+}
+
+.sym {
+  font-weight: 650;
+}
+
+.page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.page-head .actions {
+  margin-left: auto;
+}

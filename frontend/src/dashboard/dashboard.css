@@ -56,32 +56,6 @@
   width: auto;
 }
 
-.totals {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 12px;
-}
-
-.stat {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.stat-label {
-  color: var(--text-2);
-  font-size: 0.8rem;
-}
-
-.stat-value {
-  font-size: 1.3rem;
-  font-weight: 600;
-}
-
-.stat-note {
-  font-size: 0.75rem;
-}
-
 /* Grid placeholder while dragging, in theme colours. */
 .react-grid-item.react-grid-placeholder {
   background: var(--accent);

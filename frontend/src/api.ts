@@ -110,3 +110,136 @@ export type InviteInfo = {
   role: 'admin' | 'user'
   expires_at: string
 }
+
+// ---------- Capital Tracking and Account Manager (Stage 3) ----------
+
+export type Kind = 'option' | 'stock'
+export type OptionType = 'call' | 'put'
+
+export type Flow = {
+  id: number
+  account: 'long_term' | 'short_term'
+  kind: 'deposit' | 'withdrawal'
+  amount: number
+  day: string
+  note: string
+}
+
+export type PositionTrade = {
+  id: number
+  side: 'buy' | 'sell'
+  quantity: number
+  price: number
+  fees: number
+  day: string
+  note: string
+  amount: number
+}
+
+type PositionBase = {
+  id: number
+  kind: Kind
+  symbol: string
+  option_type: OptionType | null
+  strike: number | null
+  expiration: string | null
+  label: string
+  note: string
+  realized: number
+  opened: string | null
+  trades: PositionTrade[]
+}
+
+export type OpenPosition = PositionBase & {
+  quantity: number
+  average_price: number
+  cost: number
+  price: number | null
+  price_source: 'mid' | 'last' | 'intrinsic' | 'none'
+  underlying_last: number | null
+  value: number
+  gain: number | null
+  gain_pct: number | null
+  pct_of_capital: number | null
+  days_left: number | null
+  expired: boolean
+  expiring_soon: boolean
+}
+
+export type ClosedPosition = PositionBase & { closed: string | null; invested: number; returned: number }
+
+export type CapitalTotals = {
+  total: number
+  put_in: number
+  cash: number
+  positions_value: number
+  gain: number
+  gain_pct: number | null
+  realized: number
+  unrealized: number
+  estimated: boolean
+}
+
+export type CapitalSummary = {
+  totals: CapitalTotals
+  open: OpenPosition[]
+  closed: ClosedPosition[]
+  flows: Flow[]
+  prices: { available: boolean; detail: string | null }
+}
+
+export type CapitalHistory = {
+  snapshots: { day: string; total: number; put_in: number; estimated: boolean }[]
+  flows: Flow[]
+}
+
+export type CloseReason = 'take_profit' | 'stop_loss' | 'signal' | 'manual' | 'time' | 'expired'
+
+export type ClosedTrade = {
+  id: number
+  mode: 'paper' | 'real'
+  source: string
+  editable: boolean
+  kind: Kind
+  symbol: string
+  option_type: OptionType | null
+  strike: number | null
+  expiration: string | null
+  label: string
+  direction: 'long' | 'short'
+  quantity: number
+  entry_price: number
+  exit_price: number
+  fees: number
+  opened_at: string
+  closed_at: string
+  close_reason: CloseReason
+  notes: string
+  result: number
+  result_pct: number | null
+}
+
+export type TradeStats = {
+  count: number
+  wins: number
+  losses: number
+  total: number
+  win_rate: number | null
+  average_win: number | null
+  average_loss: number | null
+  by_reason: Record<string, { count: number; total: number }>
+}
+
+export type TradeListing = {
+  mode: 'paper' | 'real'
+  account_value: number
+  stats: TradeStats
+  trades: ClosedTrade[]
+  symbols: string[]
+}
+
+export type Totals = {
+  long_term: CapitalTotals & { has_records: boolean }
+  short_term: { value: number; has_records: boolean }
+  prices: { available: boolean; detail: string | null }
+}
