@@ -3,10 +3,16 @@ import {
   CandlestickSeries,
   ColorType,
   createChart,
+  createSeriesMarkers,
   HistogramSeries,
+  LineSeries,
+  LineStyle,
   TickMarkType,
   type IChartApi,
+  type IPriceLine,
   type ISeriesApi,
+  type ISeriesMarkersPluginApi,
+  type SeriesMarker,
   type Time,
   type UTCTimestamp,
 } from 'lightweight-charts'
@@ -32,8 +38,18 @@ function formatter(timeZone: string, opts: Intl.DateTimeFormatOptions) {
   }
 }
 
-/** One candlestick chart with volume, kept up to date by live prices. */
-export default function Chart({ symbol, timeframe }: { symbol: string; timeframe: Timeframe }) {
+/** Extra drawings on top of the candles (Master Chart): signal markers, one line such as a
+ * moving average, and horizontal price lines such as a position's target and stop. */
+export type Overlays = {
+  markers?: SeriesMarker<Time>[]
+  line?: { time: number; value: number }[]
+  lineColor?: string
+  priceLines?: { price: number; color: string; title: string }[]
+}
+
+/** One candlestick chart with volume, kept up to date by live prices. It loads its own candles,
+ * unless `data` is given (Master Chart passes the exact candles the strategy ran on). */
+export default function Chart({ symbol, timeframe, data, overlays }: { symbol: string; timeframe: Timeframe; data?: Bar[]; overlays?: Overlays }) {
   const me = useMe()
   const theme = me.settings.display.theme
   const userZone = me.settings.display.timezone
@@ -42,6 +58,9 @@ export default function Chart({ symbol, timeframe }: { symbol: string; timeframe
   const chart = useRef<IChartApi | null>(null)
   const candles = useRef<ISeriesApi<'Candlestick'> | null>(null)
   const volume = useRef<ISeriesApi<'Histogram'> | null>(null)
+  const overlayLine = useRef<ISeriesApi<'Line'> | null>(null)
+  const markers = useRef<ISeriesMarkersPluginApi<Time> | null>(null)
+  const priceLines = useRef<IPriceLine[]>([])
   const bars = useRef<Bar[]>([])
   const [error, setError] = useState<string | null>(null)
   // Which symbol|timeframe the shown data (or error) belongs to.
@@ -60,12 +79,17 @@ export default function Chart({ symbol, timeframe }: { symbol: string; timeframe
     candles.current = c.addSeries(CandlestickSeries, { priceLineVisible: true })
     volume.current = c.addSeries(HistogramSeries, { priceScaleId: 'vol', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false })
     c.priceScale('vol').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
+    overlayLine.current = c.addSeries(LineSeries, { lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false })
+    markers.current = createSeriesMarkers(candles.current, [])
     chart.current = c
     return () => {
       c.remove()
       chart.current = null
       candles.current = null
       volume.current = null
+      overlayLine.current = null
+      markers.current = null
+      priceLines.current = []
     }
   }, [])
 
@@ -109,21 +133,34 @@ export default function Chart({ symbol, timeframe }: { symbol: string; timeframe
 
   // Load candles when the symbol or timeframe changes, after reconnecting, and every few minutes.
   const shown = useRef('')
+  const external = data !== undefined
+  function show(list: Bar[], key: string) {
+    if (!candles.current || !volume.current) return
+    bars.current = [...list]
+    candles.current.setData(list.map((b) => ({ time: b.time as UTCTimestamp, open: b.open, high: b.high, low: b.low, close: b.close })))
+    volume.current.setData(list.map((b) => ({ time: b.time as UTCTimestamp, value: b.volume })))
+    if (shown.current !== key) {
+      chart.current?.timeScale().fitContent()
+      if (list.length > 150) chart.current?.timeScale().setVisibleLogicalRange({ from: list.length - 150, to: list.length + 4 })
+      shown.current = key
+    }
+  }
+
+  // Candles handed in by the page (it passes the symbol and timeframe they belong to).
   useEffect(() => {
+    if (!data) return
+    show(data, `${symbol}|${timeframe}`)
+  }, [data, symbol, timeframe])
+
+  useEffect(() => {
+    if (external) return
     let cancelled = false
     const key = `${symbol}|${timeframe}`
     async function load() {
       try {
         const r = await api<CandlesResponse>('GET', `/api/market/candles?symbol=${encodeURIComponent(symbol)}&tf=${timeframe}`)
-        if (cancelled || !candles.current || !volume.current) return
-        bars.current = r.bars
-        candles.current.setData(r.bars.map((b) => ({ time: b.time as UTCTimestamp, open: b.open, high: b.high, low: b.low, close: b.close })))
-        volume.current.setData(r.bars.map((b) => ({ time: b.time as UTCTimestamp, value: b.volume })))
-        if (shown.current !== key) {
-          chart.current?.timeScale().fitContent()
-          if (r.bars.length > 150) chart.current?.timeScale().setVisibleLogicalRange({ from: r.bars.length - 150, to: r.bars.length + 4 })
-          shown.current = key
-        }
+        if (cancelled) return
+        show(r.bars, key)
         setError(r.bars.length ? null : `No ${timeframe} candles for ${symbol}.`)
       } catch (e) {
         if (!cancelled) setError(e instanceof ApiError ? e.message : 'Could not load the chart.')
@@ -137,7 +174,20 @@ export default function Chart({ symbol, timeframe }: { symbol: string; timeframe
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [symbol, timeframe, reconnects])
+  }, [symbol, timeframe, reconnects, external])
+
+  // Markers, the extra line and price lines.
+  useEffect(() => {
+    markers.current?.setMarkers(overlays?.markers ?? [])
+    overlayLine.current?.setData((overlays?.line ?? []).map((p) => ({ time: p.time as UTCTimestamp, value: p.value })))
+    overlayLine.current?.applyOptions({ color: overlays?.lineColor ?? cssVar('--text-2') })
+    const series = candles.current
+    if (series) {
+      for (const l of priceLines.current) series.removePriceLine(l)
+      priceLines.current = (overlays?.priceLines ?? []).map((l) =>
+        series.createPriceLine({ price: l.price, color: l.color, title: l.title, lineStyle: LineStyle.Dashed, lineWidth: 1, axisLabelVisible: true }))
+    }
+  }, [overlays])
 
   useTicks(symbol, (tick) => {
     const last = bars.current[bars.current.length - 1]
@@ -151,7 +201,7 @@ export default function Chart({ symbol, timeframe }: { symbol: string; timeframe
     volume.current.update({ time, value: next.volume })
   })
 
-  const loading = loadedKey !== `${symbol}|${timeframe}`
+  const loading = !external && loadedKey !== `${symbol}|${timeframe}`
   return (
     <div className="chart-box">
       <div ref={box} className="chart-canvas" />

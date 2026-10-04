@@ -1,0 +1,191 @@
+/* Master Chart. Signal colours from plan section 5: BUY blue, SELL amber. */
+:root {
+  --buy: #5b9dff;
+  --sell: #f5b83d;
+}
+
+.title-note {
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.chart-controls {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.master-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .master-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.master-main,
+.master-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.master-chart-box {
+  height: 520px;
+  min-height: 300px;
+}
+
+@media (max-width: 700px) {
+  .master-chart-box {
+    height: 380px;
+  }
+}
+
+.master-chart-box .chart-box {
+  height: 100%;
+}
+
+.chart-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+}
+
+.chart-toggles {
+  margin-left: auto;
+  display: flex;
+  gap: 12px;
+}
+
+.chart-toggles .check {
+  min-height: 32px;
+  font-size: 0.85rem;
+}
+
+.legend-line {
+  font-size: 0.8rem;
+}
+
+.legend-buy {
+  color: var(--buy);
+  font-weight: 650;
+}
+
+.legend-sell {
+  color: var(--sell);
+  font-weight: 650;
+}
+
+.tabs {
+  flex-wrap: wrap;
+}
+
+.inputs-panel details {
+  border-top: 1px solid var(--border);
+  padding: 10px 0;
+}
+
+.inputs-panel summary {
+  cursor: pointer;
+  font-weight: 650;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+}
+
+.inputs-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 8px;
+}
+
+.input-row.changed > span:first-child,
+.check.input-row.changed span {
+  color: var(--paper);
+}
+
+.input-small,
+.select-small {
+  height: 40px;
+}
+
+.input-bad {
+  border-color: var(--loss);
+}
+
+.hint.bad {
+  color: var(--loss);
+}
+
+.warn-text {
+  color: var(--paper);
+}
+
+.total-row td {
+  font-weight: 650;
+  background: var(--bg);
+}
+
+.current-row td {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.preview-row td {
+  opacity: 0.65;
+  font-style: italic;
+}
+
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.results details summary {
+  cursor: pointer;
+  min-height: 32px;
+}
+
+.years {
+  max-width: 360px;
+}
+
+.parity-report {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.parity-report h3 {
+  margin: 0;
+}
+
+.parity-report p {
+  margin: 0;
+}
+
+.parity-report td.why {
+  white-space: normal;
+  min-width: 260px;
+}
+
+.steps {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.file-input {
+  padding-top: 8px;
+}

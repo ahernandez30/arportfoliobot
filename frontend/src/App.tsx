@@ -14,6 +14,7 @@ const ChartsPage = lazy(() => import('./market/ChartsPage'))
 const CapitalPage = lazy(() => import('./capital/CapitalPage'))
 const AccountsPage = lazy(() => import('./accounts/AccountsPage'))
 const LiveTraderPage = lazy(() => import('./live/LiveTraderPage'))
+const MasterChartPage = lazy(() => import('./master/MasterChartPage'))
 
 function SignedIn() {
   const { me, loading } = useAuth()
@@ -40,7 +41,7 @@ export default function App() {
             <Route path="accounts" element={<AccountsPage />} />
             <Route path="live" element={<LiveTraderPage />} />
             <Route path="charts" element={<ChartsPage />} />
-            <Route path="master" element={<Placeholder title="Master Chart" stage={5} />} />
+            <Route path="master" element={<MasterChartPage />} />
             <Route path="backtest" element={<Placeholder title="Backtest" stage={7} />} />
             <Route path="config" element={<Navigate to="/config/profile" replace />} />
             <Route path="config/:section" element={<ConfigPage />} />
