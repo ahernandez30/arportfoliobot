@@ -58,6 +58,8 @@ def run(stop: threading.Event, *, feeds: bool = True) -> None:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    # One line per Tradier request is noise in the journal.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     stop = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
     signal.signal(signal.SIGINT, lambda *_: stop.set())

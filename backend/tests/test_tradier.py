@@ -163,3 +163,47 @@ def test_parse_stream_message():
 def test_stream_error_payload():
     with pytest.raises(MarketDataError, match="not a valid symbol"):
         parse_stream_message('{"error":"1234 is not a valid symbol"}')
+
+
+def test_stream_uses_the_websocket_address(monkeypatch):
+    """Tradier's session answer carries the HTTP-streaming URL; the websocket must use wss://ws.tradier.com."""
+    import app.marketdata.tradier as tradier_mod
+
+    seen = {}
+
+    class FakeWS:
+        def __init__(self):
+            self.sent = []
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def send(self, payload):
+            self.sent.append(json.loads(payload))
+
+        def __aiter__(self):
+            async def gen():
+                yield '{"type":"trade","symbol":"SPY","price":"1.5","size":"1","date":"1"}\n'
+            return gen()
+
+    def fake_connect(url, **kw):
+        seen["url"] = url
+        seen["ws"] = FakeWS()
+        return seen["ws"]
+
+    monkeypatch.setattr(tradier_mod.websockets, "connect", fake_connect)
+
+    def handler(req):
+        assert req.url.path == "/v1/markets/events/session"
+        return httpx.Response(200, json={"stream": {"url": "https://stream.tradier.com/v1/markets/events", "sessionid": "S1"}})
+
+    async def go():
+        return [ev async for ev in client(handler).stream(["SPY", "BRK.B"])]
+
+    events = run(go())
+    assert seen["url"] == "wss://ws.tradier.com/v1/markets/events"
+    assert seen["ws"].sent[0]["sessionid"] == "S1" and seen["ws"].sent[0]["symbols"] == ["SPY", "BRK/B"]
+    assert [e.kind for e in events] == ["ready", "trade"]

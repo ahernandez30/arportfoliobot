@@ -242,7 +242,8 @@ class TradierMarketData(MarketData):
         session_id = session.get("sessionid")
         if not session_id:
             raise MarketDataError("Tradier did not open a streaming session.")
-        async with websockets.connect(session.get("url") or STREAM_URL, compression=None, open_timeout=10) as ws:
+        # The session answer's "url" is the HTTP-streaming address; the websocket one is fixed.
+        async with websockets.connect(STREAM_URL, compression=None, open_timeout=10) as ws:
             await ws.send(json.dumps({
                 "symbols": [to_tradier(s) for s in symbols],
                 "sessionid": session_id,
