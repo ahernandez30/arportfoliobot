@@ -199,9 +199,14 @@ def _tz(db: Session, user: User) -> ZoneInfo:
 
 
 def _filtered(db: Session, user: User, mode: str, period: str, start: date | None, end: date | None,
-              symbol: str | None) -> list[ClosedTrade]:
+              symbol: str | None, account: str = "main") -> list[ClosedTrade]:
     window = trade_log.period_window(period, _tz(db, user), datetime.now(timezone.utc), start, end)
-    return trade_log.query(db, user.id, mode, window, _symbol(symbol) if symbol else None)
+    return trade_log.query(db, user.id, mode, window, _symbol(symbol) if symbol else None,
+                           account if mode == "paper" else None)
+
+
+# Paper results of different sub-accounts are never added together either.
+PaperAccountName = Literal["main", "directional", "credit_spread", "debit_spread"]
 
 
 Period = Literal["today", "week", "month", "year", "all", "custom"]
@@ -214,15 +219,17 @@ async def list_trades(
     start: date | None = None,
     end: date | None = None,
     symbol: str | None = Query(None, max_length=12),
+    account: PaperAccountName = "main",
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    trades = _filtered(db, user, mode, period, start, end, symbol)
+    trades = _filtered(db, user, mode, period, start, end, symbol, account)
     if mode == "real":
         value, estimated = trade_log.real_account_value(db, user.id), False
     else:
         # The paper account itself: cash plus open positions at live prices.
-        acct = (await paper_view.summary(db, user.id, routes_market.providers.get(db, user.id)))["account"]
+        p = await paper_view.summary(db, user.id, routes_market.providers.get(db, user.id), account)
+        acct = p["account"]
         value, estimated = Decimal(str(acct["total"])), acct["estimated"]
     return {
         "mode": mode,
@@ -231,6 +238,8 @@ async def list_trades(
         "stats": trade_log.stats_out(trades),
         "trades": [trade_log.trade_out(t) for t in trades],
         "symbols": sorted({t.symbol for t in trade_log.query(db, user.id, mode)}),
+        "account": account if mode == "paper" else None,
+        "accounts": (p["accounts"] if mode == "paper" else []),
     }
 
 
@@ -241,10 +250,11 @@ def export_trades(
     start: date | None = None,
     end: date | None = None,
     symbol: str | None = Query(None, max_length=12),
+    account: PaperAccountName = "main",
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> Response:
-    trades = _filtered(db, user, mode, period, start, end, symbol)
+    trades = _filtered(db, user, mode, period, start, end, symbol, account)
     name = f"trades-{mode}-{datetime.now(_tz(db, user)):%Y-%m-%d}.csv"
     return Response(trade_log.csv_text(trades, _tz(db, user)), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="{name}"'})

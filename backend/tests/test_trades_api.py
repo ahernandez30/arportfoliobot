@@ -123,5 +123,5 @@ def test_csv_export(rafa):
     assert "attachment" in r.headers["content-disposition"]
     rows = list(csv.reader(io.StringIO(r.text)))
     assert rows[0] == trade_log.CSV_COLUMNS
-    assert rows[1][0] == "2026-10-01 14:40" and rows[1][11] == "88.70" and rows[1][13] == "Take profit"
-    assert rows[1][14].startswith("'=")  # a note can never run as a spreadsheet formula
+    assert rows[1][0] == "2026-10-01 14:40" and rows[1][11] == "88.70" and rows[1][13] == "" and rows[1][14] == "Take profit"
+    assert rows[1][15].startswith("'=")  # a note can never run as a spreadsheet formula

@@ -74,16 +74,20 @@ async def chain(symbol: str = Query(max_length=12), expiration: date = Query(), 
 # ---------- the paper account ----------
 
 
-async def _summary(db: Session, user: User) -> dict:
-    out = await paper_view.summary(db, user.id, _md(db, user))
+AccountName = Literal["main", "directional", "credit_spread", "debit_spread"]
+
+
+async def _summary(db: Session, user: User, account: str = paper.MAIN) -> dict:
+    out = await paper_view.summary(db, user.id, _md(db, user), account)
     if _md(db, user) is None:
         out["prices"]["detail"] = service.NO_KEY
     return out
 
 
 @router.get("/api/paper")
-async def get_paper(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
-    return await _summary(db, user)
+async def get_paper(account: AccountName = "main", user: User = Depends(current_user),
+                    db: Session = Depends(get_db)) -> dict:
+    return await _summary(db, user, account)
 
 
 @router.get("/api/paper/events")
@@ -197,7 +201,11 @@ class CloseIn(Strict):
 @router.post("/api/paper/positions/{position_id}/close")
 async def close_position(position_id: int, body: CloseIn, user: User = Depends(current_user),
                          db: Session = Depends(get_db)) -> dict:
-    """The Close button (all contracts, at the market) or a sell ticket for part of a position."""
+    """The Close button (all contracts, at the market) or a sell ticket for part of a position.
+    A spread always closes whole, at the market, both legs together."""
+    pos = paper.own_position(db, user.id, position_id)
+    if pos is not None and pos.status == "open" and pos.structure != "single":
+        return await _close_spread(db, user, pos)
     try:
         order = paper.place_close(db, user.id, position_id, body.quantity, body.limit_price, "manual",
                                   replace_working=body.quantity is None)
@@ -207,6 +215,28 @@ async def close_position(position_id: int, body: CloseIn, user: User = Depends(c
     db.commit()
     await _fill_now(db, user, order_id, occ)
     return await _summary(db, user)
+
+
+async def _close_spread(db: Session, user: User, pos: paper.PaperPosition) -> dict:
+    md = _provider(db, user)
+    if not await _clock_open(db, user, md):
+        raise HTTPException(409, "The options market is closed; a spread can only be closed while it is open.")
+    try:
+        quotes = await md.quotes([pos.occ_symbol, pos.occ_symbol2])
+    except MarketDataError as exc:
+        raise HTTPException(exc.status, str(exc))
+    books = {s: Book.of(q.bid, q.ask) for s, q in quotes.items()}
+    rule = user_settings.load(db, user.id).paper.fill_rule
+    account = db.get(paper.PaperAccount, pos.account_id).name
+    locked = paper.lock_open(db, pos.id)
+    if locked is None:
+        raise HTTPException(404, "That position is not open any more.")
+    price = paper.closing_price(locked, books, rule)
+    if price is None:
+        raise HTTPException(409, "No two-sided quote on both legs right now; try again in a moment.")
+    paper.close_whole_at(db, locked, price, "manual", source="manual", detail="Closed by you.")
+    db.commit()
+    return await _summary(db, user, account)
 
 
 class ExitsIn(Strict):
@@ -269,7 +299,8 @@ async def auto_pause(body: PauseIn, user: User = Depends(current_user), db: Sess
 
 
 @router.post("/api/paper/reset")
-async def reset(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
-    paper.reset(db, user.id)
+async def reset(account: AccountName = "main", user: User = Depends(current_user),
+                db: Session = Depends(get_db)) -> dict:
+    paper.reset(db, user.id, account)
     db.commit()
-    return await _summary(db, user)
+    return await _summary(db, user, account)

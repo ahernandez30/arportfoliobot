@@ -13,13 +13,18 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app import ledger, paper_rules, user_settings
+from app import auto_plan, ledger, paper_rules, user_settings
 from app.ledger import ZERO
 from app.marketdata.bars import NY
 from app.models import ClosedTrade, PaperAccount, PaperEvent, PaperOrder, PaperPosition, TradingControls
 from app.paper_rules import Book, order_value
 
 MAIN = "main"
+# Paper sub-accounts, one per trade structure, so structures run on the same signals never mix
+# results (plan section 8). A single structure trades in the main account.
+SUB_ACCOUNTS = ("directional", "credit_spread", "debit_spread")
+ACCOUNT_LABELS = {MAIN: "Main", "directional": "Directional", "credit_spread": "Credit spread",
+                  "debit_spread": "Debit spread"}
 
 
 class PaperError(ValueError):
@@ -50,6 +55,42 @@ def contract_of(row: PaperOrder | PaperPosition) -> Contract:
     return Contract(row.symbol, row.option_type, Decimal(row.strike), row.expiration)
 
 
+SPREAD_NAMES = {("credit_spread", "put"): "bull put spread", ("credit_spread", "call"): "bear call spread",
+                ("debit_spread", "call"): "bull call spread", ("debit_spread", "put"): "bear put spread"}
+
+
+def label_of(row: PaperOrder | PaperPosition) -> str:
+    """A position's name on screen: the contract, or both legs of a spread."""
+    if row.structure == "single":
+        return contract_of(row).label
+    k = ledger.fmt_qty
+    return (f"{row.symbol} {k(Decimal(row.strike))}/{k(Decimal(row.strike2))} {row.option_type} "
+            f"{SPREAD_NAMES[(row.structure, row.option_type)]}, {row.expiration:%b %d %Y}")
+
+
+def width_of(row: PaperOrder | PaperPosition) -> Decimal:
+    return abs(Decimal(row.strike) - Decimal(row.strike2)) if row.structure != "single" else ZERO
+
+
+def unit_risk(row: PaperOrder | PaperPosition, price: Decimal) -> Decimal:
+    """Dollars one contract or spread opened at `price` can lose: the cash set aside for it."""
+    if row.structure == "credit_spread":
+        return (width_of(row) - price) * ledger.HUNDRED
+    return price * ledger.HUNDRED
+
+
+def position_value(pos: PaperPosition, close_price: Decimal) -> Decimal:
+    """What the position gives back if closed at `close_price` (per share; for a spread, the net
+    debit to buy a credit spread back or the net credit a debit spread sells for)."""
+    if pos.structure == "credit_spread":
+        return (width_of(pos) - close_price) * ledger.HUNDRED * pos.quantity
+    return order_value(pos.quantity, close_price)
+
+
+def position_cost(pos: PaperPosition) -> Decimal:
+    return unit_risk(pos, Decimal(pos.entry_price)) * pos.quantity
+
+
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -57,19 +98,28 @@ def utcnow() -> datetime:
 # ---------- account, switches, log ----------
 
 
-def account(db: Session, user_id: int, *, lock: bool = False) -> PaperAccount:
-    """The user's main paper account, created at the Config starting balance on first use."""
-    stmt = select(PaperAccount).where(PaperAccount.user_id == user_id, PaperAccount.name == MAIN)
+def account(db: Session, user_id: int, *, lock: bool = False, name: str = MAIN) -> PaperAccount:
+    """A paper account of the user's (the main one unless named), created at the Config starting
+    balance on first use."""
+    stmt = select(PaperAccount).where(PaperAccount.user_id == user_id, PaperAccount.name == name)
     row = db.scalar(stmt.with_for_update() if lock else stmt)
     if row is None:
         start = Decimal(str(user_settings.load(db, user_id).paper.starting_balance))
-        row = PaperAccount(user_id=user_id, name=MAIN, cash=start, starting_balance=start)
+        row = PaperAccount(user_id=user_id, name=name, cash=start, starting_balance=start)
         db.add(row)
         db.flush()
-        log(db, user_id, row.id, "account_opened", f"Paper account opened with ${start:,.2f}.")
+        what = "Paper account" if name == MAIN else f"Paper sub-account “{ACCOUNT_LABELS.get(name, name)}”"
+        log(db, user_id, row.id, "account_opened", f"{what} opened with ${start:,.2f}.")
         if lock:
             db.refresh(row, with_for_update=True)
     return row
+
+
+def accounts(db: Session, user_id: int) -> list[PaperAccount]:
+    """The main account first, then any sub-accounts."""
+    rows = list(db.scalars(select(PaperAccount).where(PaperAccount.user_id == user_id)))
+    order = (MAIN, *SUB_ACCOUNTS)
+    return sorted(rows, key=lambda a: (order.index(a.name) if a.name in order else len(order), a.name))
 
 
 def controls(db: Session, user_id: int, *, lock: bool = False) -> TradingControls:
@@ -106,19 +156,25 @@ def realized_today(db: Session, user_id: int, now: datetime | None = None) -> De
                 for t in rows), ZERO)
 
 
-def open_positions(db: Session, user_id: int) -> list[PaperPosition]:
-    return list(db.scalars(select(PaperPosition).where(
-        PaperPosition.user_id == user_id, PaperPosition.status == "open").order_by(PaperPosition.opened_at)))
+def open_positions(db: Session, user_id: int, account_id: int | None = None) -> list[PaperPosition]:
+    stmt = select(PaperPosition).where(PaperPosition.user_id == user_id, PaperPosition.status == "open")
+    if account_id is not None:
+        stmt = stmt.where(PaperPosition.account_id == account_id)
+    return list(db.scalars(stmt.order_by(PaperPosition.opened_at)))
 
 
-def working_orders(db: Session, user_id: int) -> list[PaperOrder]:
-    return list(db.scalars(select(PaperOrder).where(
-        PaperOrder.user_id == user_id, PaperOrder.status == "working").order_by(PaperOrder.created_at)))
+def working_orders(db: Session, user_id: int, account_id: int | None = None) -> list[PaperOrder]:
+    stmt = select(PaperOrder).where(PaperOrder.user_id == user_id, PaperOrder.status == "working")
+    if account_id is not None:
+        stmt = stmt.where(PaperOrder.account_id == account_id)
+    return list(db.scalars(stmt.order_by(PaperOrder.created_at)))
 
 
-def recent_orders(db: Session, user_id: int, limit: int = 30) -> list[PaperOrder]:
-    return list(db.scalars(select(PaperOrder).where(PaperOrder.user_id == user_id, PaperOrder.status != "working")
-                           .order_by(PaperOrder.done_at.desc(), PaperOrder.id.desc()).limit(limit)))
+def recent_orders(db: Session, user_id: int, limit: int = 30, account_id: int | None = None) -> list[PaperOrder]:
+    stmt = select(PaperOrder).where(PaperOrder.user_id == user_id, PaperOrder.status != "working")
+    if account_id is not None:
+        stmt = stmt.where(PaperOrder.account_id == account_id)
+    return list(db.scalars(stmt.order_by(PaperOrder.done_at.desc(), PaperOrder.id.desc()).limit(limit)))
 
 
 def closing_quantity(db: Session, position_id: int) -> int:
@@ -154,7 +210,7 @@ def place_open(db: Session, user_id: int, c: Contract, quantity: int, limit: Dec
         raise PaperError(problem)
     order = PaperOrder(user_id=user_id, account_id=acct.id, source=source, side="buy", intent="open",
                        symbol=c.symbol, option_type=c.option_type, strike=c.strike, expiration=c.expiration,
-                       occ_symbol=c.occ, quantity=quantity, limit_price=limit, take_profit_pct=take_profit_pct,
+                       occ_symbol=c.occ, structure="single", quantity=quantity, limit_price=limit, take_profit_pct=take_profit_pct,
                        stop_loss_pct=stop_loss_pct, status="working", idempotency_key=idempotency_key)
     db.add(order)
     db.flush()
@@ -181,6 +237,8 @@ def place_close(db: Session, user_id: int, position_id: int, quantity: int | Non
     pos = own_position(db, user_id, position_id, lock=True)
     if pos is None or pos.status != "open":
         raise PaperError("That position is not open any more.", status=404)
+    if pos.structure != "single":
+        raise PaperError("A spread closes as a whole, at the market.")
     if replace_working:
         for o in db.scalars(select(PaperOrder).where(PaperOrder.position_id == pos.id, PaperOrder.status == "working",
                                                      PaperOrder.intent == "close").with_for_update()):
@@ -194,7 +252,7 @@ def place_close(db: Session, user_id: int, position_id: int, quantity: int | Non
     c = contract_of(pos)
     order = PaperOrder(user_id=user_id, account_id=pos.account_id, source=source, side="sell", intent="close",
                        position_id=pos.id, symbol=c.symbol, option_type=c.option_type, strike=c.strike,
-                       expiration=c.expiration, occ_symbol=c.occ, quantity=quantity, limit_price=limit,
+                       expiration=c.expiration, occ_symbol=c.occ, structure="single", quantity=quantity, limit_price=limit,
                        close_reason=reason, status="working")
     db.add(order)
     db.flush()
@@ -257,7 +315,7 @@ def _apply_fill(db: Session, order: PaperOrder, price: Decimal, now: datetime, d
         acct.cash -= value
         pos = PaperPosition(user_id=order.user_id, account_id=order.account_id, source=order.source,
                             symbol=c.symbol, option_type=c.option_type, strike=c.strike, expiration=c.expiration,
-                            occ_symbol=c.occ, quantity=order.quantity, entry_price=price, take_profit_price=tp,
+                            occ_symbol=c.occ, structure="single", quantity=order.quantity, entry_price=price, take_profit_price=tp,
                             stop_loss_price=sl, status="open", opened_at=now)
         db.add(pos)
         db.flush()
@@ -275,7 +333,7 @@ def _apply_fill(db: Session, order: PaperOrder, price: Decimal, now: datetime, d
                         option_type=c.option_type, strike=c.strike, expiration=c.expiration, direction="long",
                         quantity=Decimal(sold), entry_price=pos.entry_price, exit_price=price, fees=ZERO,
                         opened_at=pos.opened_at, closed_at=now, close_reason=order.close_reason or "manual",
-                        paper_position_id=pos.id)
+                        paper_position_id=pos.id, account_name=acct.name)
     db.add(trade)
     result = order_value(sold, price - pos.entry_price)
     log(db, order.user_id, acct.id, "order_filled",
@@ -308,7 +366,7 @@ def check_exits(db: Session, position_id: int, book: Book, rule: str, now: datet
     """Closes a position whose target or stop has been reached. Returns which one, if any."""
     pos = db.scalar(select(PaperPosition).where(PaperPosition.id == position_id, PaperPosition.status == "open")
                     .with_for_update(skip_locked=True))
-    if pos is None:
+    if pos is None or pos.structure != "single":
         return None
     hit = paper_rules.exit_trigger(book, rule, pos.take_profit_price, pos.stop_loss_price)
     if hit and close_at_market(db, pos, book, rule, hit, now):
@@ -322,13 +380,15 @@ def settle(db: Session, position_id: int, underlying: Decimal, now: datetime | N
                     .with_for_update(skip_locked=True))
     if pos is None:
         return False
+    if pos.structure != "single":
+        return _settle_spread(db, pos, underlying, now or utcnow())
     for o in db.scalars(select(PaperOrder).where(PaperOrder.position_id == pos.id, PaperOrder.status == "working")
                         .with_for_update()):
         _finish(db, o, "cancelled", "The option expired.")
     price = paper_rules.settlement_price(pos.option_type, Decimal(pos.strike), underlying)
     order = PaperOrder(user_id=pos.user_id, account_id=pos.account_id, source=pos.source, side="sell",
                        intent="close", position_id=pos.id, symbol=pos.symbol, option_type=pos.option_type,
-                       strike=pos.strike, expiration=pos.expiration, occ_symbol=pos.occ_symbol,
+                       strike=pos.strike, expiration=pos.expiration, occ_symbol=pos.occ_symbol, structure="single",
                        quantity=pos.quantity, limit_price=None, close_reason="expired", status="working")
     db.add(order)
     db.flush()
@@ -381,11 +441,11 @@ def set_auto_paused(db: Session, user_id: int, paused: bool) -> None:
         "Automatic trading paused." if paused else "Automatic trading un-paused.")
 
 
-def reset(db: Session, user_id: int) -> None:
-    """Starts the paper account over at the Config starting balance. Working orders are
+def reset(db: Session, user_id: int, name: str = MAIN) -> None:
+    """Starts a paper account over at the Config starting balance. Working orders are
     cancelled and open positions are set aside (not counted as trades). Finished paper
     trades stay in Account Manager and the event log keeps everything."""
-    acct = account(db, user_id, lock=True)
+    acct = account(db, user_id, lock=True, name=name)
     for o in db.scalars(select(PaperOrder).where(PaperOrder.account_id == acct.id, PaperOrder.status == "working")
                         .with_for_update()):
         _finish(db, o, "cancelled", "Paper account reset.")
@@ -400,9 +460,146 @@ def reset(db: Session, user_id: int) -> None:
     acct.cash = acct.starting_balance = start
     acct.reset_at = utcnow()
     log(db, user_id, acct.id, "account_reset",
-        f"Paper account reset to ${start:,.2f} (cash was ${old:,.2f}; {voided} open position(s) set aside).")
+        f"{'Paper account' if name == MAIN else 'Paper sub-account ' + ACCOUNT_LABELS.get(name, name)} reset to ${start:,.2f} (cash was ${old:,.2f}; {voided} open position(s) set aside).")
 
 
 def events(db: Session, user_id: int, limit: int = 50) -> list[PaperEvent]:
     return list(db.scalars(select(PaperEvent).where(PaperEvent.user_id == user_id)
                            .order_by(PaperEvent.at.desc(), PaperEvent.id.desc()).limit(limit)))
+
+
+# ---------- automatic trades: open and close at the market, spreads ----------
+
+
+@dataclass(frozen=True)
+class MarketOpen:
+    """An opening trade filled at once at prices just quoted (automatic trades, plan 7.6).
+    For a spread, strike/occ are the leg sold and strike2/occ2 the leg bought; price is net per share."""
+
+    structure: str
+    symbol: str
+    option_type: str
+    expiration: date
+    strike: Decimal
+    occ: str
+    quantity: int
+    price: Decimal
+    strike2: Decimal | None = None
+    occ2: str | None = None
+
+
+def open_at_market(db: Session, user_id: int, spec: MarketOpen, *, account_name: str = MAIN, source: str,
+                   idempotency_key: str, now: datetime | None = None) -> PaperPosition:
+    """Opens a position filled at `spec.price`, after every check in plan section 10. The size
+    limit applies to the most it can lose (for a spread, width minus credit)."""
+    now = now or utcnow()
+    if db.scalar(select(PaperOrder.id).where(PaperOrder.idempotency_key == idempotency_key)):
+        raise PaperError("This signal already placed its order.")
+    acct = account(db, user_id, lock=True, name=account_name)
+    ctl = controls(db, user_id)
+    settings = user_settings.load(db, user_id)
+    order = PaperOrder(user_id=user_id, account_id=acct.id, source=source, side="sell" if spec.structure == "credit_spread" else "buy",
+                       intent="open", symbol=spec.symbol, option_type=spec.option_type, strike=spec.strike,
+                       expiration=spec.expiration, occ_symbol=spec.occ, structure=spec.structure, strike2=spec.strike2,
+                       occ_symbol2=spec.occ2, quantity=spec.quantity, limit_price=None, status="working",
+                       idempotency_key=idempotency_key)
+    risk_each = unit_risk(order, spec.price)
+    problem = paper_rules.opening_order_problem(
+        halted=ctl.halted, quantity=spec.quantity, limit=risk_each / ledger.HUNDRED,
+        available_cash=acct.cash - reserved_cash(db, acct.id), realized_today=realized_today(db, user_id, now),
+        limits=paper_rules.Limits(Decimal(str(settings.trading.max_order_usd)),
+                                  Decimal(str(settings.trading.max_daily_loss_usd))),
+        expiration=spec.expiration, today=now.astimezone(NY).date(),
+        what="cost" if spec.structure != "credit_spread" else "risk")
+    if problem:
+        log(db, user_id, acct.id, "order_refused", f"{label_of(order)} x{spec.quantity}: {problem}", source=source)
+        raise PaperError(problem)
+    db.add(order)
+    total = risk_each * spec.quantity
+    acct.cash -= total
+    order.status = "filled"
+    order.fill_price = spec.price
+    order.done_at = now
+    pos = PaperPosition(user_id=user_id, account_id=acct.id, source=source, symbol=spec.symbol,
+                        option_type=spec.option_type, strike=spec.strike, expiration=spec.expiration,
+                        occ_symbol=spec.occ, structure=spec.structure, strike2=spec.strike2, occ_symbol2=spec.occ2,
+                        quantity=spec.quantity, entry_price=spec.price, status="open", opened_at=now)
+    db.add(pos)
+    db.flush()
+    order.position_id = pos.id
+    if spec.structure == "credit_spread":
+        what = f"Sold {spec.quantity} {label_of(pos)} for a credit of {spec.price} (${total:,.2f} set aside: most it can lose)."
+    elif spec.structure == "debit_spread":
+        what = f"Bought {spec.quantity} {label_of(pos)} for {spec.price} (${total:,.2f})."
+    else:
+        what = f"Bought {spec.quantity} {label_of(pos)} at {spec.price} (${total:,.2f})."
+    log(db, user_id, acct.id, "order_filled", what, source=source, order_id=order.id, position_id=pos.id)
+    return pos
+
+
+def lock_open(db: Session, position_id: int) -> PaperPosition | None:
+    return db.scalar(select(PaperPosition).where(PaperPosition.id == position_id, PaperPosition.status == "open")
+                     .with_for_update(skip_locked=True))
+
+
+def close_whole_at(db: Session, pos: PaperPosition, price: Decimal, reason: str, *, now: datetime | None = None,
+                   source: str | None = None, detail: str = "") -> ClosedTrade:
+    """Closes a whole locked open position (single option or spread) at `price` per share (net for a
+    spread), cancelling any working orders on it, and writes the finished trade."""
+    now = now or utcnow()
+    for o in db.scalars(select(PaperOrder).where(PaperOrder.position_id == pos.id, PaperOrder.status == "working")
+                        .with_for_update()):
+        _finish(db, o, "cancelled", "Replaced by a closing order.")
+    acct = db.scalar(select(PaperAccount).where(PaperAccount.id == pos.account_id).with_for_update())
+    order = PaperOrder(user_id=pos.user_id, account_id=pos.account_id, source=source or pos.source,
+                       side="buy" if pos.structure == "credit_spread" else "sell", intent="close", position_id=pos.id,
+                       symbol=pos.symbol, option_type=pos.option_type, strike=pos.strike, expiration=pos.expiration,
+                       occ_symbol=pos.occ_symbol, structure=pos.structure, strike2=pos.strike2,
+                       occ_symbol2=pos.occ_symbol2, quantity=pos.quantity, limit_price=None, close_reason=reason,
+                       status="filled", fill_price=price, done_at=now, status_detail=detail)
+    db.add(order)
+    db.flush()
+    back = position_value(pos, price)
+    risk = position_cost(pos)
+    acct.cash += back
+    trade = ClosedTrade(user_id=pos.user_id, mode="paper", source=pos.source, kind="option", symbol=pos.symbol,
+                        option_type=pos.option_type, strike=pos.strike, expiration=pos.expiration,
+                        direction="short" if pos.structure == "credit_spread" else "long",
+                        quantity=Decimal(pos.quantity), entry_price=pos.entry_price, exit_price=price, fees=ZERO,
+                        opened_at=pos.opened_at, closed_at=now, close_reason=reason, paper_position_id=pos.id,
+                        structure=pos.structure, strike2=pos.strike2, account_name=acct.name,
+                        risk=risk if pos.structure != "single" else None)
+    db.add(trade)
+    result = back - risk
+    verb = "Bought back" if pos.structure == "credit_spread" else "Sold"
+    log(db, pos.user_id, acct.id, "order_filled",
+        f"{verb} {pos.quantity} {label_of(pos)} at {price} (${back:,.2f} back), result "
+        f"{'+' if result >= 0 else '−'}${abs(result):,.2f} ({reason})." + (f" {detail}" if detail else ""),
+        source=order.source, order_id=order.id, position_id=pos.id)
+    pos.quantity = 0
+    pos.status = "closed"
+    pos.closed_at = now
+    db.flush()
+    return trade
+
+
+def closing_price(pos: PaperPosition, books: dict[str, Book], rule: str) -> Decimal | None:
+    """What closing the whole position would fill at now, per share (net for a spread)."""
+    if pos.structure == "single":
+        b = books.get(pos.occ_symbol)
+        return paper_rules.market_price("sell", b, rule) if b else None
+    sold, bought = books.get(pos.occ_symbol), books.get(pos.occ_symbol2)
+    if sold is None or bought is None:
+        return None
+    return auto_plan.spread_price(pos.structure, sold, bought, rule, False, width_of(pos))
+
+
+def _settle_spread(db: Session, pos: PaperPosition, underlying: Decimal, now: datetime) -> bool:
+    """At expiration each leg is worth how far it is in the money; the pair settles at the difference."""
+    sold = paper_rules.settlement_price(pos.option_type, Decimal(pos.strike), underlying)
+    bought = paper_rules.settlement_price(pos.option_type, Decimal(pos.strike2), underlying)
+    w = width_of(pos)
+    net = sold - bought if pos.structure == "credit_spread" else bought - sold
+    net = max(ZERO, min(w, net))
+    close_whole_at(db, pos, net, "expired", now=now, detail=f"Settled at expiration with {pos.symbol} at {underlying}.")
+    return True

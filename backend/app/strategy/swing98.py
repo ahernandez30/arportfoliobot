@@ -393,6 +393,8 @@ class SwingV98(Strategy):
         blocked: list[dict] = []
         preview: dict | None = None
         trades: list[dict] = []
+        # Every position the rules opened (on closed candles), for the worker's automatic trades.
+        entries: list[dict] = []
         book = Book()
         open_trades: list[OpenTrade] = []
         dia_marcado = None
@@ -405,6 +407,7 @@ class SwingV98(Strategy):
         sig_entry, sig_dir, sig_tipo, sig_year, sig_bar, sig_time = None, 0, 0, 0, 0, 0
         # Basket (lines 359-367)
         cst_dir, cst_sum, cst_n, cst_tipo, cst_year, cst_bar, cst_time = 0, 0.0, 0, 0, 0, 0, 0
+        cst_times: list[int] = []
         # Luck test (lines 756-771)
         sb: list[Shadow] = []
         ab: list[Shadow] = []
@@ -587,6 +590,7 @@ class SwingV98(Strategy):
                 if (up_v or dn_v) and sig_dir == 0 and antes:
                     sig_entry, sig_dir, sig_tipo = b.close, (1 if up_v else -1), c.tipo
                     sig_year, sig_bar, sig_time = bar_year(b, tf), i, b.time
+                    entries.append({"i": i, "time": b.time, "price": b.close, "dir": sig_dir, "type": TYPES[c.tipo]})
 
             # ---------- basket (lines 580-667) ----------
             if modo_senal and modo_cesta:
@@ -624,22 +628,29 @@ class SwingV98(Strategy):
                     trades.append({"entry_i": cst_bar, "entry_time": cst_time, "entry_price": avg, "dir": cst_dir,
                                    "type": TYPES[cst_tipo], "exit_i": i, "exit_time": b.time, "exit_price": exit_price,
                                    "reason": motivo, "ret_pct": ret, "counted": True, "bars": i - cst_bar,
-                                   "days": days, "entries": cst_n})
+                                   "days": days, "entries": cst_n, "entry_times": list(cst_times)})
                     cst_dir, cst_sum, cst_n = 0, 0.0, 0
+                    cst_times = []
                 antes = hc_min is None or min_et < hc_min
                 if (up_v or dn_v) and antes:
                     dc = 1 if up_v else -1
                     if cst_dir == 0:
                         cst_dir, cst_sum, cst_n, cst_tipo = dc, b.close, 1, c.tipo
                         cst_year, cst_bar, cst_time = bar_year(b, tf), i, b.time
+                        cst_times = [b.time]
+                        entries.append({"i": i, "time": b.time, "price": b.close, "dir": dc, "type": TYPES[c.tipo]})
                     elif cst_dir == dc and (x["maxCesta"] == 0 or cst_n < x["maxCesta"]):
                         cst_sum += b.close
                         cst_n += 1
+                        cst_times.append(b.time)
+                        entries.append({"i": i, "time": b.time, "price": b.close, "dir": dc, "type": TYPES[c.tipo]})
 
             if up_v and not modo_senal:
                 open_trades.append(OpenTrade(b.close, 1, i, c.tipo, bar_year(b, tf), b.time))
+                entries.append({"i": i, "time": b.time, "price": b.close, "dir": 1, "type": TYPES[c.tipo]})
             if dn_v and not modo_senal:
                 open_trades.append(OpenTrade(b.close, -1, i, c.tipo, bar_year(b, tf), b.time))
+                entries.append({"i": i, "time": b.time, "price": b.close, "dir": -1, "type": TYPES[c.tipo]})
             hay_pos = len(open_trades) > 0
 
             # ---------- luck test shadow books (lines 773-821) ----------
@@ -684,14 +695,18 @@ class SwingV98(Strategy):
         elif modo_senal and not modo_cesta and sig_dir != 0:
             position = _ss_position(sig_entry, sig_dir, sig_time, sig_tipo, x)
         elif modo_senal and modo_cesta and cst_dir != 0:
-            position = _ss_position(cst_sum / cst_n, cst_dir, cst_time, cst_tipo, x) | {"entries": cst_n}
+            position = _ss_position(cst_sum / cst_n, cst_dir, cst_time, cst_tipo, x) | {"entries": cst_n,
+                                                                                        "entry_times": list(cst_times)}
 
         out = {
             "signals": signals,
             "preview": preview,
             "blocked": blocked,
             "trades": trades,
-            "open_trades": [{"entry": t.entry, "dir": t.d, "entry_time": t.time, "type": TYPES[t.tipo]}
+            "entries": entries,
+            "open_trades": [{"entry": t.entry, "dir": t.d, "entry_time": t.time, "type": TYPES[t.tipo],
+                             "target": t.entry * (1 + o) if t.d == 1 else t.entry * (1 - o),
+                             "stop": t.entry * (1 - st) if t.d == 1 else t.entry * (1 + st)}
                             for t in open_trades],
             "position": position,
             "results": _results(book, closed, x),

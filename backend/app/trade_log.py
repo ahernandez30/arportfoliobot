@@ -9,7 +9,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app import capital, ledger
@@ -54,8 +54,13 @@ def period_window(period: str, tz: ZoneInfo, now: datetime, start: date | None =
 
 
 def query(db: Session, user_id: int, mode: str, window: Window = Window(None, None),
-          symbol: str | None = None) -> list[ClosedTrade]:
+          symbol: str | None = None, account: str | None = None) -> list[ClosedTrade]:
+    """Closed trades of one mode; for paper, optionally of one paper account (main or a sub-account)."""
     stmt = select(ClosedTrade).where(ClosedTrade.user_id == user_id, ClosedTrade.mode == mode)
+    if account == "main":
+        stmt = stmt.where(or_(ClosedTrade.account_name == account, ClosedTrade.account_name.is_(None)))
+    elif account is not None:
+        stmt = stmt.where(ClosedTrade.account_name == account)
     if window.start is not None:
         stmt = stmt.where(ClosedTrade.closed_at >= window.start)
     if window.end is not None:
@@ -70,7 +75,33 @@ def get(db: Session, user_id: int, trade_id: int) -> ClosedTrade | None:
 
 
 def result(t: ClosedTrade) -> tuple[Decimal, Decimal | None]:
-    return ledger.trade_result(t.direction, t.kind, t.quantity, t.entry_price, t.exit_price, t.fees)
+    """Dollars and percent. A spread's percent is of the most it could lose (what was at stake)."""
+    dollars, pct = ledger.trade_result(t.direction, t.kind, t.quantity, t.entry_price, t.exit_price, t.fees)
+    if t.risk:
+        pct = dollars / t.risk * ledger.HUNDRED
+    return dollars, pct
+
+
+SPREAD_NAMES = {("credit_spread", "put"): "bull put spread", ("credit_spread", "call"): "bear call spread",
+                ("debit_spread", "call"): "bull call spread", ("debit_spread", "put"): "bear put spread"}
+
+
+def label(t: ClosedTrade) -> str:
+    if (t.structure or "single") == "single":
+        return capital.contract_label(t.kind, t.symbol, t.option_type, t.strike, t.expiration)
+    k = ledger.fmt_qty
+    return (f"{t.symbol} {k(t.strike)}/{k(t.strike2)} {t.option_type} {SPREAD_NAMES[(t.structure, t.option_type)]}, "
+            f"{t.expiration:%b %d %Y}")
+
+
+def stock_move(t: ClosedTrade) -> float | None:
+    """How far the stock moved in the trade's favor, in percent (plan 7.6: kept beside the option's result).
+    Puts, bear spreads gain when the stock falls."""
+    if t.underlying_entry is None or t.underlying_exit is None or not t.underlying_entry:
+        return None
+    move = (t.underlying_exit - t.underlying_entry) / t.underlying_entry * ledger.HUNDRED
+    bearish = (t.option_type == "put") != (t.structure == "credit_spread")
+    return float(round(-move if bearish else move, 4))
 
 
 def editable(t: ClosedTrade) -> bool:
@@ -85,7 +116,11 @@ def trade_out(t: ClosedTrade) -> dict:
         "kind": t.kind, "symbol": t.symbol, "option_type": t.option_type,
         "strike": float(t.strike) if t.strike is not None else None,
         "expiration": t.expiration.isoformat() if t.expiration else None,
-        "label": capital.contract_label(t.kind, t.symbol, t.option_type, t.strike, t.expiration),
+        "label": label(t), "structure": t.structure or "single",
+        "strike2": float(t.strike2) if t.strike2 is not None else None,
+        "account": t.account_name, "risk": money(t.risk) if t.risk is not None else None,
+        "underlying_entry": price_out(t.underlying_entry), "underlying_exit": price_out(t.underlying_exit),
+        "stock_move_pct": stock_move(t),
         "direction": t.direction, "quantity": float(t.quantity),
         "entry_price": price_out(t.entry_price), "exit_price": price_out(t.exit_price), "fees": money(t.fees),
         "opened_at": t.opened_at.isoformat(), "closed_at": t.closed_at.isoformat(),
@@ -118,7 +153,7 @@ def to_utc(local: datetime, tz: ZoneInfo) -> datetime:
 
 
 CSV_COLUMNS = ["Closed", "Opened", "Mode", "Placed by", "Contract", "Type", "Direction", "Quantity", "Entry",
-               "Exit", "Fees", "Result $", "Result %", "How it closed", "Notes"]
+               "Exit", "Fees", "Result $", "Result %", "Stock move %", "How it closed", "Notes"]
 
 
 def csv_text(trades: list[ClosedTrade], tz: ZoneInfo) -> str:
@@ -133,6 +168,7 @@ def csv_text(trades: list[ClosedTrade], tz: ZoneInfo) -> str:
             ledger.fmt_qty(t.quantity), ledger.fmt_qty(t.entry_price), ledger.fmt_qty(t.exit_price),
             f"{o['fees']:.2f}", f"{o['result']:.2f}",
             "" if o["result_pct"] is None else f"{o['result_pct']:.2f}",
+            "" if o["stock_move_pct"] is None else f"{o['stock_move_pct']:.2f}",
             REASON_LABELS[t.close_reason], _safe_cell(t.notes),
         ])
     return buf.getvalue()

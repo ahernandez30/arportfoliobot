@@ -3,14 +3,14 @@
 Stage 2: heartbeat, plus live price feeds for symbols users have on screen (app.feed).
 Stage 3: end-of-day long-term capital snapshots (app.snapshots).
 Stage 4: the paper trading engine (app.paper_worker).
-Strategies and paper orders come in later stages.
+Stage 6: automatic paper trading from strategy signals (app.auto_trader).
 """
 import asyncio
 import logging
 import signal
 import threading
 
-from app import paper_worker, snapshots
+from app import auto_trader, paper_worker, snapshots
 from app.config import get_settings
 from app.db import get_engine, record_heartbeat
 from app.feed import FeedManager
@@ -40,6 +40,7 @@ async def run_async(stop: asyncio.Event, *, feeds: bool = True) -> None:
         tasks.append(asyncio.create_task(FeedManager(get_engine()).run(stop)))
         tasks.append(asyncio.create_task(snapshots.run(get_engine(), stop)))
         tasks.append(asyncio.create_task(paper_worker.run(get_engine(), stop)))
+        tasks.append(asyncio.create_task(auto_trader.run(get_engine(), stop)))
     await asyncio.gather(*tasks)
     log.info("worker stopped")
 

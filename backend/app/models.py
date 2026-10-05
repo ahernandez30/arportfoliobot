@@ -17,6 +17,7 @@ from sqlalchemy import (
     Index,
     LargeBinary,
     Numeric,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -312,6 +313,9 @@ class ClosedTrade(Base):
             name="closed_trades_contract_check",
         ),
         Index("closed_trades_user_mode_closed", "user_id", "mode", "closed_at"),
+        CheckConstraint("structure IN ('single', 'credit_spread', 'debit_spread')", name="closed_trades_structure_check"),
+        CheckConstraint("(structure = 'single' AND strike2 IS NULL) OR (structure <> 'single' AND strike2 > 0 AND strike2 <> strike)",
+                        name="closed_trades_legs_check"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -336,6 +340,16 @@ class ClosedTrade(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     # For paper trades: the paper position it came from.
     paper_position_id: Mapped[int | None] = mapped_column(ForeignKey("paper_positions.id", ondelete="SET NULL"))
+    # Stage 6: spreads (strike = leg sold, strike2 = leg bought; prices are net per share).
+    structure: Mapped[str] = mapped_column(String(16), default="single")
+    strike2: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
+    # Dollars that could be lost at entry, when that is not simply the price paid (a credit spread).
+    risk: Mapped[Decimal | None] = mapped_column(Numeric(16, 2))
+    # Paper account it ran in: "main" or a sub-account per structure.
+    account_name: Mapped[str | None] = mapped_column(String(32))
+    # The stock's price at entry and exit, so the option's result can be set against the stock's move.
+    underlying_entry: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
+    underlying_exit: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
 
 
 # ---------- Stage 4: paper trading ----------
@@ -369,6 +383,9 @@ class PaperOrder(Base):
         CheckConstraint("quantity > 0", name="paper_orders_quantity_check"),
         CheckConstraint("option_type IN ('call', 'put')", name="paper_orders_type_check"),
         Index("paper_orders_working", "status", postgresql_where="status = 'working'"),
+        CheckConstraint("structure IN ('single', 'credit_spread', 'debit_spread')", name="paper_orders_structure_check"),
+        CheckConstraint("(structure = 'single' AND strike2 IS NULL) OR (structure <> 'single' AND strike2 > 0 AND strike2 <> strike)",
+                        name="paper_orders_legs_check"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -384,6 +401,11 @@ class PaperOrder(Base):
     strike: Mapped[Decimal] = mapped_column(Numeric(12, 3))
     expiration: Mapped[date] = mapped_column(Date)
     occ_symbol: Mapped[str] = mapped_column(String(32))
+    # "single" (one option), or a two-leg spread opened and closed together (plan 7.6). For a spread,
+    # strike is the leg sold and strike2 the leg bought; prices are the net price of the pair.
+    structure: Mapped[str] = mapped_column(String(16), default="single")
+    strike2: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
+    occ_symbol2: Mapped[str | None] = mapped_column(String(32))
     quantity: Mapped[int] = mapped_column(BigInteger)
     # None means "at the market": fill at the current quote.
     limit_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
@@ -409,6 +431,9 @@ class PaperPosition(Base):
         CheckConstraint("status IN ('open', 'closed', 'voided')", name="paper_positions_status_check"),
         CheckConstraint("quantity >= 0", name="paper_positions_quantity_check"),
         CheckConstraint("option_type IN ('call', 'put')", name="paper_positions_type_check"),
+        CheckConstraint("structure IN ('single', 'credit_spread', 'debit_spread')", name="paper_positions_structure_check"),
+        CheckConstraint("(structure = 'single' AND strike2 IS NULL) OR (structure <> 'single' AND strike2 > 0 AND strike2 <> strike)",
+                        name="paper_positions_legs_check"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -420,7 +445,12 @@ class PaperPosition(Base):
     strike: Mapped[Decimal] = mapped_column(Numeric(12, 3))
     expiration: Mapped[date] = mapped_column(Date)
     occ_symbol: Mapped[str] = mapped_column(String(32))
-    # Contracts still held; goes down with partial closes.
+    # "single" (one option), or a two-leg spread opened and closed together (plan 7.6). For a spread,
+    # strike is the leg sold and strike2 the leg bought; prices are the net price of the pair.
+    structure: Mapped[str] = mapped_column(String(16), default="single")
+    strike2: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
+    occ_symbol2: Mapped[str | None] = mapped_column(String(32))
+    # Contracts (or spreads) still held; goes down with partial closes.
     quantity: Mapped[int] = mapped_column(BigInteger)
     entry_price: Mapped[Decimal] = mapped_column(Numeric(14, 4))
     take_profit_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
@@ -456,6 +486,11 @@ class TradingControls(Base):
     halted: Mapped[bool] = mapped_column(Boolean, default=False)
     # "Pause automatic trading": the strategy places nothing new (Stage 6).
     auto_paused: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Why automatic trading cannot act right now (stale prices, provider unreachable), or "".
+    auto_problem: Mapped[str] = mapped_column(Text, default="")
+    auto_problem_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Last time the worker looked at this user's automatic trading.
+    auto_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -476,6 +511,11 @@ class StrategyPreset(Base):
     timeframe: Mapped[str] = mapped_column(String(4))
     inputs: Mapped[dict] = mapped_column(JSONB)
     pegged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # "What to trade on a signal" for this symbol and timeframe (validated by app.auto_plan).
+    trade: Mapped[dict] = mapped_column(JSONB, default=dict)
+    # Place paper trades from these signals; only signals on candles closing after auto_since count.
+    auto: Mapped[bool] = mapped_column(Boolean, default=False)
+    auto_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class MasterChartState(Base):
@@ -505,3 +545,58 @@ class ParityCheck(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     signed_off_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     sign_off_note: Mapped[str] = mapped_column(Text, default="")
+
+
+# ---------- Stage 6: automatic paper trading ----------
+
+STRATEGY_TRADE_STATUSES = ("waiting", "open", "floating", "closed", "refused", "missed")
+
+
+class StrategyTrade(Base):
+    """One signal turned into one paper trade for one structure (plan 7.6 and section 10).
+
+    waiting: the signal's candle closed; the order goes in when the options market is open.
+    open: the option position is held; it closes when the strategy exits on the stock chart.
+    floating: the strategy stopped following it (its "leave floating" rule); closed before expiration.
+    closed / refused / missed: finished, with the reason in detail."""
+
+    __tablename__ = "strategy_trades"
+    __table_args__ = (
+        CheckConstraint("direction IN (1, -1)", name="strategy_trades_direction_check"),
+        CheckConstraint("structure IN ('directional', 'credit_spread', 'debit_spread')",
+                        name="strategy_trades_structure_check"),
+        CheckConstraint("status IN ('waiting', 'open', 'floating', 'closed', 'refused', 'missed')",
+                        name="strategy_trades_status_check"),
+        UniqueConstraint("user_id", "strategy", "symbol", "timeframe", "signal_time", "structure",
+                         name="strategy_trades_once"),
+        Index("strategy_trades_user_created", "user_id", "created_at"),
+        Index("strategy_trades_active", "status", postgresql_where="status IN ('waiting', 'open', 'floating')"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    preset_id: Mapped[int | None] = mapped_column(ForeignKey("strategy_presets.id", ondelete="SET NULL"))
+    strategy: Mapped[str] = mapped_column(String(40))
+    symbol: Mapped[str] = mapped_column(String(16))
+    timeframe: Mapped[str] = mapped_column(String(4))
+    structure: Mapped[str] = mapped_column(String(16))
+    account_name: Mapped[str] = mapped_column(String(32))
+    # Start of the signal's candle (Unix seconds), as the engine reports it.
+    signal_time: Mapped[int] = mapped_column(BigInteger)
+    direction: Mapped[int] = mapped_column(SmallInteger)
+    candle_type: Mapped[str] = mapped_column(String(16))
+    signal_price: Mapped[Decimal] = mapped_column(Numeric(14, 4))
+    status: Mapped[str] = mapped_column(String(12))
+    detail: Mapped[str] = mapped_column(Text, default="")
+    # How the contract was chosen: strike distance, hold days, expiration, size, payout ratio.
+    plan: Mapped[dict] = mapped_column(JSONB, default=dict)
+    position_id: Mapped[int | None] = mapped_column(ForeignKey("paper_positions.id", ondelete="SET NULL"))
+    under_entry: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
+    # The strategy's target and stop on the stock price, when its mode has them.
+    under_target: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
+    under_stop: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
+    under_exit: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
+    exit_reason: Mapped[str | None] = mapped_column(String(16))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

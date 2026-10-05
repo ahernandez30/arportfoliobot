@@ -120,16 +120,19 @@ class Limits:
 
 
 def opening_order_problem(*, halted: bool, quantity: int, limit: Decimal, available_cash: Decimal,
-                          realized_today: Decimal, limits: Limits, expiration: date, today: date) -> str | None:
+                          realized_today: Decimal, limits: Limits, expiration: date, today: date,
+                          what: str = "cost") -> str | None:
     """Why a new opening order must be refused, in plain words, or None if it may go ahead.
-    The limits apply to manual and automatic orders alike (plan section 10)."""
+    The limits apply to manual and automatic orders alike (plan section 10). For a credit spread
+    `limit` is the most one spread can lose per share and `what` is "risk"."""
     if halted:
         return "Trading is stopped. Press “Resume trading” on the Live Trader first."
     if expiration < today:
         return "That option has already expired."
     cost = order_value(quantity, limit)
     if cost > limits.max_order_usd:
-        return (f"This order would cost ${cost:,.2f}, more than your largest order allowed "
+        verb = "could lose" if what == "risk" else "would cost"
+        return (f"This order {verb} ${cost:,.2f}, more than your largest order allowed "
                 f"(${limits.max_order_usd:,.2f}). Change it in Config → Trading.")
     if realized_today <= -limits.max_daily_loss_usd:
         return (f"Today's paper losses (${-realized_today:,.2f}) have reached your daily limit "

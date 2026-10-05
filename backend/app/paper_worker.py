@@ -91,6 +91,9 @@ async def run_user(engine: Engine, providers: ProviderCache, clocks: ClockCache,
         return  # outside market hours, orders wait
     live_orders = [o for o in orders if not paper_rules.expired(o.expiration, now)]
     live_positions = [p for p in positions if not paper_rules.expired(p.expiration, now)]
+    # Spreads have no target or stop of their own (strategy exits come from app.auto_trader), so only
+    # single options need quotes here.
+    live_positions = [p for p in live_positions if p.structure == "single"]
     symbols = sorted({o.occ_symbol for o in live_orders} | {p.occ_symbol for p in live_positions})
     if not symbols:
         return
