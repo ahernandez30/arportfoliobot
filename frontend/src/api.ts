@@ -217,7 +217,18 @@ export type ClosedTrade = {
   notes: string
   result: number
   result_pct: number | null
+  structure: Structure
+  strike2: number | null
+  account: string | null
+  risk: number | null
+  underlying_entry: number | null
+  underlying_exit: number | null
+  stock_move_pct: number | null
 }
+
+/** A single option, or a two-leg spread opened and closed together (Stage 6). */
+export type Structure = 'single' | 'credit_spread' | 'debit_spread'
+export type AccountRef = { name: string; label: string }
 
 export type TradeStats = {
   count: number
@@ -237,6 +248,8 @@ export type TradeListing = {
   stats: TradeStats
   trades: ClosedTrade[]
   symbols: string[]
+  account: string | null
+  accounts: AccountRef[]
 }
 
 export type Totals = {
@@ -266,8 +279,11 @@ export type PaperPositionView = {
   source: string
   label: string
   symbol: string
+  structure: Structure
   option_type: OptionType
   strike: number
+  strike2: number | null
+  width: number | null
   expiration: string
   quantity: number
   entry_price: number
@@ -290,6 +306,7 @@ export type PaperOrderView = {
   source: string
   side: 'buy' | 'sell'
   intent: 'open' | 'close'
+  structure: Structure
   label: string
   occ_symbol: string
   quantity: number
@@ -316,6 +333,8 @@ export type PaperSummary = {
   fill_rule: 'bid_ask' | 'mid'
   prices: { available: boolean; detail: string | null }
   order?: PaperOrderView
+  account_name: string
+  accounts: AccountRef[]
 }
 
 export type PaperEventView = { id: number; at: string; event: string; source: string; detail: string }
@@ -343,4 +362,91 @@ export type OrderReview = {
   stop_loss_price: number | null
   problem: string | null
   fill_rule: 'bid_ask' | 'mid'
+}
+
+// ---------- automatic paper trading (Stage 6) ----------
+
+export type TradeStructure = 'directional' | 'credit_spread' | 'debit_spread'
+
+/** “What to trade on a signal”, saved with the pegged settings of one symbol and timeframe. */
+export type TradeSettings = {
+  structure: TradeStructure | 'compare'
+  distance_mode: 'auto' | 'fixed'
+  distance_pct: number
+  side: 'toward' | 'away'
+  expiry_mode: 'auto' | 'fixed'
+  margin_pct: number
+  expiry_days: number
+  risk_usd: number
+}
+
+export type AutoPlan = { pegged: boolean; trade: TradeSettings; auto: boolean; auto_since: string | null; auto_trading: 'off' | 'paper' }
+
+export type TradePlanRow = {
+  structure: TradeStructure
+  label: string
+  signal: 'BUY' | 'SELL'
+  problem?: string
+  description?: string
+  stock_price?: number
+  distance_pct?: number
+  target_strike?: number
+  hold_days?: number
+  expiration?: string
+  quantity?: number
+  price?: number
+  unit_risk?: number
+  unit_reward?: number | null
+  max_loss?: number
+  max_gain?: number | null
+  payout?: number | null
+  width?: number | null
+}
+
+export type AutoPreview = {
+  stock_price: number
+  history: { winners: number; avg_win_move: number | null; avg_days: number | null; avg_loss_days: number | null }
+  rules: { distance_pct: number; distance_note: string; hold_days: number; hold_note: string }
+  fill_rule: 'bid_ask' | 'mid'
+  rows: TradePlanRow[]
+}
+
+export type AutoTrade = {
+  id: number
+  strategy: string
+  symbol: string
+  timeframe: string
+  structure: TradeStructure
+  structure_label: string
+  account: string
+  account_label: string
+  signal_time: number
+  signal: 'BUY' | 'SELL'
+  candle_type: string
+  signal_price: number
+  status: 'waiting' | 'open' | 'floating' | 'closed' | 'refused' | 'missed'
+  detail: string
+  plan: Partial<TradePlanRow> & { hold_note?: string; distance_note?: string }
+  position_id: number | null
+  position_label: string | null
+  under_entry: number | null
+  under_target: number | null
+  under_stop: number | null
+  under_exit: number | null
+  exit_reason: CloseReason | null
+  created_at: string
+  opened_at: string | null
+  closed_at: string | null
+}
+
+export type AutoStatus = {
+  state: 'off' | 'stopped' | 'paused' | 'nothing' | 'problem' | 'on'
+  auto_trading: 'off' | 'paper'
+  halted: boolean
+  paused: boolean
+  problem: string
+  problem_at: string | null
+  checked_at: string | null
+  runs: { strategy: string; name: string; symbol: string; timeframe: string; structure: TradeSettings['structure']; open: number; waiting: number }[]
+  active: number
 }

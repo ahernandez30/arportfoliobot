@@ -189,3 +189,23 @@
 .file-input {
   padding-top: 8px;
 }
+
+/* Stage 6: what to trade on a signal, and the trades signals caused */
+.trade-plan .hint {
+  display: block;
+}
+
+.auto-switch {
+  margin-top: 4px;
+  font-weight: 600;
+}
+
+.plan-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.signal-trade + .signal-trade {
+  margin-top: 4px;
+}

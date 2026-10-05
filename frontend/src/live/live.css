@@ -189,3 +189,14 @@
   max-height: 360px;
   overflow-y: auto;
 }
+
+.status-strip.problem {
+  border-color: var(--paper);
+}
+
+.account-pick {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}

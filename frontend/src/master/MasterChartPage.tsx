@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { api, ApiError } from '../api'
+import { api, ApiError, type AutoTrade } from '../api'
 import { useMe } from '../auth'
 import { StatusLine } from '../config/common'
 import { useAction } from '../config/hooks'
@@ -10,6 +10,7 @@ import { Credits, MarketState } from '../market/MarketHeader'
 import InputsPanel from './InputsPanel'
 import { changedKeys, defaults, markers, presetFor, refreshMs } from './logic'
 import ParityPanel from './ParityPanel'
+import TradePlanPanel from './TradePlanPanel'
 import { LuckPanel, ResultsPanel } from './ResultsPanel'
 import type { Inputs, InputValue, Luck, MasterState, Preset, RunResult, StrategyDef } from './types'
 import '../market/market.css'
@@ -36,6 +37,28 @@ function ruleText(i: Inputs): string {
   return `Target ${i.objPct}% / stop ${i.stopPct}% · ${i.cierraMercado ? `closes after ${i.maxVelas} candles` : `floats after ${i.maxVelas} candles`}`
 }
 
+const TRADE_STATUS: Record<AutoTrade['status'], string> = {
+  waiting: 'Waiting for the market', open: 'Open', floating: 'Open (floating)', closed: 'Closed', refused: 'Not placed', missed: 'Missed',
+}
+
+/** The paper trade(s) a signal caused: one per structure. */
+function SignalTrades({ rows }: { rows: AutoTrade[] }) {
+  if (!rows.length) return <span className="muted">—</span>
+  return (
+    <>
+      {rows.map((a) => (
+        <div key={a.id} className="signal-trade" title={a.detail || undefined}>
+          <span className={`badge ${a.status === 'open' || a.status === 'floating' ? 'badge-on' : a.status === 'waiting' ? 'badge-warn' : 'badge-off'}`}>
+            {TRADE_STATUS[a.status]}
+          </span>{' '}
+          <span className="sym">{a.position_label ?? a.plan.description ?? a.structure_label}</span>
+          {a.detail && (a.status === 'refused' || a.status === 'missed') && <span className="muted"> · {a.detail}</span>}
+        </div>
+      ))}
+    </>
+  )
+}
+
 /** Master Chart: the strategy on one chart, every input editable, pegging per symbol and timeframe,
  * and the parity check against TradingView (plan section 6). */
 export default function MasterChartPage() {
@@ -56,6 +79,8 @@ export default function MasterChartPage() {
   const [tab, setTab] = useState<'results' | 'luck' | 'signals' | 'parity'>('results')
   const pegAction = useAction()
   const runId = useRef(0)
+  // Paper trades the worker placed from this chart's signals, by candle time.
+  const [autoTrades, setAutoTrades] = useState<AutoTrade[]>([])
 
   useEffect(() => {
     Promise.all([api<StrategyDef[]>('GET', '/api/strategy/strategies'), api<MasterState>('GET', '/api/strategy/state')])
@@ -99,6 +124,17 @@ export default function MasterChartPage() {
       window.clearInterval(timer)
     }
   }, [state, run])
+
+  const chartKey = state ? `${state.strategy}|${state.symbol}|${state.timeframe}` : ''
+  useEffect(() => {
+    if (!chartKey || tab !== 'signals') return
+    const [strategy, symbol, timeframe] = chartKey.split('|')
+    const q = new URLSearchParams({ strategy, symbol, timeframe, limit: '200' })
+    const load = () => api<AutoTrade[]>('GET', `/api/auto/trades?${q}`).then(setAutoTrades).catch(() => setAutoTrades([]))
+    void load()
+    const timer = window.setInterval(() => document.visibilityState === 'visible' && void load(), 15000)
+    return () => window.clearInterval(timer)
+  }, [chartKey, tab])
 
   const pegged = state ? presetFor(presets, state.symbol, state.timeframe) : null
   const diff = state && pegged ? changedKeys(pegged.inputs, state.inputs) : []
@@ -267,7 +303,7 @@ export default function MasterChartPage() {
                         <td className="num right">{formatPrice(s.price)}</td>
                         <td className="num right">{s.body_pct.toFixed(0)}</td>
                         <td className="num right">{s.wick_pct.toFixed(0)}</td>
-                        <td className="muted">Stage 6</td>
+                        <td><SignalTrades rows={autoTrades.filter((a) => a.signal_time === s.time)} /></td>
                       </tr>
                     ))}
                   </tbody>
@@ -329,8 +365,9 @@ export default function MasterChartPage() {
             <p className="muted">Every input of the script. Changes redraw the signals straight away.{pegged && ' Changed from the pegged set: marked.'}</p>
             <InputsPanel defs={defs.inputs} inputs={state.inputs} pegged={pegged?.inputs ?? null} onChange={setInput} />
           </div>
+          <TradePlanPanel key={`${state.symbol}|${state.timeframe}`} strategy={state.strategy} symbol={state.symbol} timeframe={state.timeframe} inputs={state.inputs} pegged={!!pegged} />
           <div className="panel empty">
-            <p>“What to trade on a signal” (calls, puts or spreads, strikes, size, and placing paper trades from signals) comes in Stage 6. “Send to Backtest” comes with the Backtest tab in Stage 7.</p>
+            <p>“Send to Backtest” comes with the Backtest tab in Stage 7.</p>
           </div>
         </aside>
       </div>

@@ -9,8 +9,32 @@ import { formatMoney } from '../money'
 
 const REASON: Record<string, string> = { take_profit: 'take profit', stop_loss: 'stop loss', manual: 'manual', expired: 'expired', signal: 'signal', time: 'time' }
 
+function orderVerb(o: PaperOrderView): string {
+  if (o.structure === 'credit_spread') return o.intent === 'open' ? 'Sell' : 'Buy back'
+  return o.side === 'buy' ? 'Buy' : 'Sell'
+}
+
 function placedBy(source: string): string {
   return source === 'manual' ? 'Manual' : source
+}
+
+/** A strategy's position: its exits come from the strategy on the stock chart (plan 7.6). */
+function StrategyDetail({ p }: { p: PaperPositionView }) {
+  const tz = useMe().settings.display.timezone
+  const spread = p.structure !== 'single'
+  return (
+    <div className="detail">
+      <p className="muted">
+        Opened {formatDateTime(p.opened_at, tz)} by {p.source} · {spread ? `${p.structure === 'credit_spread' ? 'credit received' : 'paid'} ` : 'entry '}
+        <span className="num">{formatPrice(p.entry_price)}</span> per share · {spread ? 'most it can lose' : 'cost'} <span className="num">{formatMoney(p.cost)}</span>
+        {spread && p.width != null && <> · width <span className="num">{formatPrice(p.width)}</span></>}
+      </p>
+      <p className="muted">
+        Closes when the strategy exits on the {p.symbol} stock chart (target, stop, candle count, opposite signal or close time), or the market day before
+        expiration. {spread && 'Both legs are always opened and closed together.'} See Master Chart → Recent signals for the stock-price target and stop.
+      </p>
+    </div>
+  )
 }
 
 function ExitsEditor({ p, onSaved }: { p: PaperPositionView; onSaved: (s: PaperSummary) => void }) {
@@ -53,7 +77,8 @@ export function PositionsTable({ rows, onChanged, onSell }: { rows: PaperPositio
   const [open, setOpen] = useState<number | null>(null)
   const action = useAction()
   async function close(p: PaperPositionView) {
-    if (!window.confirm(`Close ${p.quantity} ${p.label} at the market (about ${formatPrice(p.price)})?`)) return
+    const what = p.structure === 'single' ? `${p.quantity} ${p.label}` : `${p.quantity} × ${p.label} (both legs)`
+    if (!window.confirm(`Close ${what} at the market (about ${formatPrice(p.price)})?`)) return
     await action.run(async () => onChanged(await api<PaperSummary>('POST', `/api/paper/positions/${p.id}/close`, {})))
   }
   if (!rows.length) return <p className="muted">No open paper positions. Pick a price in the option chain to start.</p>
@@ -81,18 +106,26 @@ export function PositionsTable({ rows, onChanged, onSell }: { rows: PaperPositio
                   <td className="num right">{formatPrice(p.price)}</td>
                   <td className={`num right ${changeClass(p.pl)}`}>{formatMoney(p.pl, true)}</td>
                   <td className={`num right ${changeClass(p.pl_pct)}`}>{formatPct(p.pl_pct)}</td>
-                  <td className="num right">{formatPrice(p.take_profit_price)}</td>
-                  <td className="num right">{formatPrice(p.stop_loss_price)}</td>
+                  {p.source === 'manual' ? (
+                    <>
+                      <td className="num right">{formatPrice(p.take_profit_price)}</td>
+                      <td className="num right">{formatPrice(p.stop_loss_price)}</td>
+                    </>
+                  ) : (
+                    <td colSpan={2} className="muted right">by the strategy</td>
+                  )}
                   <td>{placedBy(p.source)}</td>
                   <td className="right" onClick={(e) => e.stopPropagation()}>
                     <div className="actions">
-                      <button className="btn btn-small" onClick={() => onSell(p)}>Sell…</button>
+                      {p.structure === 'single' && <button className="btn btn-small" onClick={() => onSell(p)}>Sell…</button>}
                       <button className="btn btn-small btn-danger" disabled={action.busy} onClick={() => void close(p)}>Close</button>
                     </div>
                   </td>
                 </tr>
                 {open === p.id && (
-                  <tr className="detail-row"><td colSpan={10}><ExitsEditor p={p} onSaved={onChanged} /></td></tr>
+                  <tr className="detail-row"><td colSpan={10}>
+                    {p.source === 'manual' ? <ExitsEditor p={p} onSaved={onChanged} /> : <StrategyDetail p={p} />}
+                  </td></tr>
                 )}
               </Fragment>
             ))}
@@ -119,7 +152,7 @@ export function WorkingOrders({ rows, onChanged }: { rows: PaperOrderView[]; onC
           <tbody>
             {rows.map((o) => (
               <tr key={o.id}>
-                <td>{o.side === 'buy' ? 'Buy' : 'Sell'} <span className="sym">{o.label}</span>{o.intent === 'close' && o.close_reason && <span className="muted"> · {REASON[o.close_reason] ?? o.close_reason}</span>}</td>
+                <td>{orderVerb(o)} <span className="sym">{o.label}</span>{o.intent === 'close' && o.close_reason && <span className="muted"> · {REASON[o.close_reason] ?? o.close_reason}</span>}</td>
                 <td className="num right">{o.quantity}</td>
                 <td className="num right">{o.limit_price == null ? 'market' : formatPrice(o.limit_price)}</td>
                 <td className="num right">{formatPrice(o.bid)}</td>
@@ -155,7 +188,7 @@ export function RecentOrders({ rows }: { rows: PaperOrderView[] }) {
           {rows.map((o) => (
             <tr key={o.id}>
               <td>{formatDateTime(o.done_at, tz)}</td>
-              <td>{o.side === 'buy' ? 'Buy' : 'Sell'} <span className="sym">{o.label}</span>{o.close_reason && <span className="muted"> · {REASON[o.close_reason] ?? o.close_reason}</span>}</td>
+              <td>{orderVerb(o)} <span className="sym">{o.label}</span>{o.close_reason && <span className="muted"> · {REASON[o.close_reason] ?? o.close_reason}</span>}</td>
               <td className="num right">{o.quantity}</td>
               <td>{o.status === 'filled' ? 'Filled' : o.status === 'cancelled' ? 'Cancelled' : 'Refused'}{o.status_detail && <span className="muted"> · {o.status_detail}</span>}</td>
               <td className="num right">{formatPrice(o.fill_price)}</td>

@@ -78,8 +78,8 @@ export function TradingSection() {
           onChange={setAuto}
         />
         <span className="hint">
-          Automatic trading starts in Stage 6. “Paper and real” becomes available in Stage 8, and needs both you and the
-          admin to switch it on.
+          Paper only: each symbol and timeframe you switch on in Master Chart (“What to trade on a signal”) places paper trades
+          from its signals. “Paper and real” becomes available in Stage 8, and needs both you and the admin to switch it on.
         </span>
       </div>
       <StatusLine status={action.status} />

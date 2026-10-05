@@ -70,7 +70,7 @@ function Report({ c, onSigned }: { c: ParityCheck; onSigned: (c: ParityCheck) =>
         <p className="msg msg-ok">Signed off {formatDateTime(c.signed_off_at, tz)}{c.sign_off_note && `: “${c.sign_off_note}”`}</p>
       ) : (
         <div className="form">
-          <Field label="Sign-off note (optional)" hint="Sign off once every difference is explained. Automatic trading (Stage 6) needs this.">
+          <Field label="Sign-off note (optional)" hint="Sign off once every difference is explained. Automatic paper trading already runs (your choice); real-money trading will wait for this.">
             <input className="input" value={note} maxLength={2000} onChange={(e) => setNote(e.target.value)} />
           </Field>
           <div className="actions">

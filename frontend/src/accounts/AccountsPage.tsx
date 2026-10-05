@@ -48,7 +48,11 @@ function TradeDetail({ t, onChanged, onEdit }: { t: ClosedTrade; onChanged: () =
   return (
     <div className="detail">
       <p className="muted">
-        {t.direction === 'long' ? 'Bought, then sold' : 'Sold, then bought back'} · fees <span className="num">{formatMoney(t.fees)}</span> · placed by{' '}
+        {t.structure === 'credit_spread' ? 'Spread sold for a credit, then bought back' : t.structure === 'debit_spread' ? 'Spread bought, then sold'
+          : t.direction === 'long' ? 'Bought, then sold' : 'Sold, then bought back'}
+        {t.risk != null && <> · most it could lose <span className="num">{formatMoney(t.risk)}</span> (the % is of this)</>}
+        {t.underlying_entry != null && t.underlying_exit != null && <> · stock <span className="num">{formatQuoted(t.underlying_entry)}</span> → <span className="num">{formatQuoted(t.underlying_exit)}</span></>}
+        {' '}· fees <span className="num">{formatMoney(t.fees)}</span> · placed by{' '}
         {t.source === 'manual' ? 'you (typed in)' : t.source}
       </p>
       <Field label="Notes">
@@ -80,6 +84,8 @@ export default function AccountsPage() {
   const [start, setStart] = useState('')
   const [end, setEnd] = useState('')
   const [symbol, setSymbol] = useState('')
+  // Paper sub-accounts (one per structure compared) are never added together.
+  const [account, setAccount] = useState('main')
   const [data, setData] = useState<TradeListing | null>(null)
   const [flows, setFlows] = useState<Flow[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -92,6 +98,7 @@ export default function AccountsPage() {
     if (end) params.set('end', end)
   }
   if (symbol) params.set('symbol', symbol)
+  if (mode === 'paper') params.set('account', account)
   const query = params.toString()
 
   const load = useCallback(() => {
@@ -103,6 +110,8 @@ export default function AccountsPage() {
   useEffect(load, [load])
 
   const s = data?.stats
+  // Strategy trades record the stock's own move beside the option's result (plan 7.6).
+  const hasMoves = !!data?.trades.some((t) => t.stock_move_pct != null)
   return (
     <section className="page page-wide">
       <div className="page-head">
@@ -124,6 +133,13 @@ export default function AccountsPage() {
             <Field label="From"><input className="input" type="date" value={start} onChange={(e) => setStart(e.target.value)} /></Field>
             <Field label="To"><input className="input" type="date" value={end} onChange={(e) => setEnd(e.target.value)} /></Field>
           </>
+        )}
+        {mode === 'paper' && data && data.accounts.length > 1 && (
+          <Field label="Paper account">
+            <select className="select" value={account} onChange={(e) => { setAccount(e.target.value); setOpen(null) }}>
+              {data.accounts.map((x) => <option key={x.name} value={x.name}>{x.label}</option>)}
+            </select>
+          </Field>
         )}
         <Field label="Symbol">
           <select className="select" value={symbol} onChange={(e) => setSymbol(e.target.value)}>
@@ -177,7 +193,8 @@ export default function AccountsPage() {
               <thead>
                 <tr>
                   <th>Closed</th><th>Contract</th><th className="right">Quantity</th><th className="right">Entry</th><th className="right">Exit</th>
-                  <th className="right">Result $</th><th className="right">Result %</th><th>How it closed</th><th>Placed by</th><th>Notes</th>
+                  <th className="right">Result $</th><th className="right">Result %</th>{hasMoves && <th className="right">Stock move</th>}
+                  <th>How it closed</th><th>Placed by</th><th>Notes</th>
                 </tr>
               </thead>
               <tbody>
@@ -185,19 +202,20 @@ export default function AccountsPage() {
                   <Fragment key={t.id}>
                     <tr className="clickable" onClick={() => setOpen(open === t.id ? null : t.id)} aria-expanded={open === t.id}>
                       <td><span className="disclosure" aria-hidden="true">{open === t.id ? '▾' : '▸'}</span> {formatDateTime(t.closed_at, tz)}</td>
-                      <td><span className="sym">{t.label}</span>{t.direction === 'short' && <span className="muted"> · short</span>}</td>
+                      <td><span className="sym">{t.label}</span>{t.direction === 'short' && t.structure === 'single' && <span className="muted"> · short</span>}</td>
                       <td className="num right">{formatQty(t.quantity)}</td>
                       <td className="num right">{formatQuoted(t.entry_price)}</td>
                       <td className="num right">{formatQuoted(t.exit_price)}</td>
                       <td className={`num right ${changeClass(t.result)}`}>{formatMoney(t.result, true)}</td>
                       <td className={`num right ${changeClass(t.result_pct)}`}>{formatPct(t.result_pct)}</td>
+                      {hasMoves && <td className={`num right ${changeClass(t.stock_move_pct)}`}>{formatPct(t.stock_move_pct)}</td>}
                       <td>{REASON_LABEL[t.close_reason]}</td>
                       <td>{t.source === 'manual' ? 'Manual entry' : t.source}</td>
                       <td className="muted notes-cell">{t.notes}</td>
                     </tr>
                     {open === t.id && (
                       <tr className="detail-row">
-                        <td colSpan={10}>
+                        <td colSpan={hasMoves ? 11 : 10}>
                           <TradeDetail t={t} onChanged={load} onEdit={() => { setEntry(t); window.scrollTo({ top: 0, behavior: 'smooth' }) }} />
                         </td>
                       </tr>
