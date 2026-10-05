@@ -73,3 +73,13 @@ export function markers(r: RunResult, c: MarkerColors, opts: { exits: boolean; b
 export function refreshMs(tf: Timeframe): number {
   return { '1m': 15_000, '5m': 30_000, '15m': 60_000, '1h': 60_000, '1D': 300_000, '1W': 600_000 }[tf]
 }
+
+/** The trade rule in words, for under the results tables. */
+export function ruleText(i: Inputs): string {
+  if (i.modoSenal) {
+    const tp = i.tpPctSS as number
+    const sl = i.slPctSS as number
+    return `${i.modoCesta ? 'Basket' : 'Signal to signal'}${tp || sl ? ` · take profit ${tp || '—'}% / stop ${sl || '—'}%` : ' (opposite signal only)'}`
+  }
+  return `Target ${i.objPct}% / stop ${i.stopPct}% · ${i.cierraMercado ? `closes after ${i.maxVelas} candles` : `floats after ${i.maxVelas} candles`}`
+}

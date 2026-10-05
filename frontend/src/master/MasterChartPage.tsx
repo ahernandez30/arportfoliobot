@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useNavigate } from 'react-router'
 import { api, ApiError, type AutoTrade } from '../api'
 import { useMe } from '../auth'
 import { StatusLine } from '../config/common'
@@ -8,11 +9,11 @@ import { formatPrice, INTRADAY, TIMEFRAMES, type Timeframe } from '../market/bar
 import Chart, { type Overlays } from '../market/Chart'
 import { Credits, MarketState } from '../market/MarketHeader'
 import InputsPanel from './InputsPanel'
-import { changedKeys, defaults, markers, presetFor, refreshMs } from './logic'
+import { changedKeys, defaults, markers, presetFor, refreshMs, ruleText } from './logic'
 import ParityPanel from './ParityPanel'
 import TradePlanPanel from './TradePlanPanel'
 import { LuckPanel, ResultsPanel } from './ResultsPanel'
-import type { Inputs, InputValue, Luck, MasterState, Preset, RunResult, StrategyDef } from './types'
+import type { InputValue, Luck, MasterState, Preset, RunResult, StrategyDef } from './types'
 import '../market/market.css'
 import '../capital/capital.css'
 import './master.css'
@@ -26,15 +27,6 @@ function cssVar(name: string): string {
 function when(t: number, tf: Timeframe, tz: string): string {
   if (INTRADAY.includes(tf)) return formatDateTime(new Date(t * 1000).toISOString(), tz)
   return new Date(t * 1000).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' })
-}
-
-function ruleText(i: Inputs): string {
-  if (i.modoSenal) {
-    const tp = i.tpPctSS as number
-    const sl = i.slPctSS as number
-    return `${i.modoCesta ? 'Basket' : 'Signal to signal'}${tp || sl ? ` · take profit ${tp || '—'}% / stop ${sl || '—'}%` : ' (opposite signal only)'}`
-  }
-  return `Target ${i.objPct}% / stop ${i.stopPct}% · ${i.cierraMercado ? `closes after ${i.maxVelas} candles` : `floats after ${i.maxVelas} candles`}`
 }
 
 const TRADE_STATUS: Record<AutoTrade['status'], string> = {
@@ -78,6 +70,7 @@ export default function MasterChartPage() {
   const [symbolText, setSymbolText] = useState('')
   const [tab, setTab] = useState<'results' | 'luck' | 'signals' | 'parity'>('results')
   const pegAction = useAction()
+  const navigate = useNavigate()
   const runId = useRef(0)
   // Paper trades the worker placed from this chart's signals, by candle time.
   const [autoTrades, setAutoTrades] = useState<AutoTrade[]>([])
@@ -366,8 +359,14 @@ export default function MasterChartPage() {
             <InputsPanel defs={defs.inputs} inputs={state.inputs} pegged={pegged?.inputs ?? null} onChange={setInput} />
           </div>
           <TradePlanPanel key={`${state.symbol}|${state.timeframe}`} strategy={state.strategy} symbol={state.symbol} timeframe={state.timeframe} inputs={state.inputs} pegged={!!pegged} />
-          <div className="panel empty">
-            <p>“Send to Backtest” comes with the Backtest tab in Stage 7.</p>
+          <div className="panel">
+            <h2>Backtest</h2>
+            <p className="muted">Run these exact settings over {state.symbol} {state.timeframe}’s history, with stock-price and option results side by side.</p>
+            <div className="actions">
+              <button className="btn btn-primary" onClick={() => navigate('/backtest', { state: { sent: { strategy: state.strategy, symbol: state.symbol, timeframe: state.timeframe, inputs: state.inputs } } })}>
+                Send to Backtest
+              </button>
+            </div>
           </div>
         </aside>
       </div>

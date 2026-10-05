@@ -1,0 +1,32 @@
+/* Backtest: one colour per result column, distinct from gains/losses and the BUY/SELL markers. */
+:root {
+  --bt-stock: #9aa4b2;
+  --bt-directional: #5b9dff;
+  --bt-credit: #b48cff;
+  --bt-debit: #3cc8c8;
+}
+
+:root[data-theme='light'] {
+  --bt-stock: #5b6472;
+  --bt-directional: #2f6fd6;
+  --bt-credit: #7a4fd0;
+  --bt-debit: #138c8c;
+}
+
+.equity-box {
+  height: 340px;
+}
+
+@media (max-width: 700px) {
+  .equity-box {
+    height: 260px;
+  }
+}
+
+.compare-table td:first-child {
+  white-space: nowrap;
+}
+
+.compare-table .badge {
+  margin-left: 6px;
+}

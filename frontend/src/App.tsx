@@ -5,7 +5,6 @@ import ConfigPage from './config/ConfigPage'
 import InvitePage from './InvitePage'
 import LoginPage from './LoginPage'
 import { FeedProvider } from './market/feed'
-import Placeholder from './Placeholder'
 import Shell from './Shell'
 
 // Charts and the dashboard grid are large; load them only once signed in.
@@ -15,6 +14,7 @@ const CapitalPage = lazy(() => import('./capital/CapitalPage'))
 const AccountsPage = lazy(() => import('./accounts/AccountsPage'))
 const LiveTraderPage = lazy(() => import('./live/LiveTraderPage'))
 const MasterChartPage = lazy(() => import('./master/MasterChartPage'))
+const BacktestPage = lazy(() => import('./backtest/BacktestPage'))
 
 function SignedIn() {
   const { me, loading } = useAuth()
@@ -42,7 +42,7 @@ export default function App() {
             <Route path="live" element={<LiveTraderPage />} />
             <Route path="charts" element={<ChartsPage />} />
             <Route path="master" element={<MasterChartPage />} />
-            <Route path="backtest" element={<Placeholder title="Backtest" stage={7} />} />
+            <Route path="backtest" element={<BacktestPage />} />
             <Route path="config" element={<Navigate to="/config/profile" replace />} />
             <Route path="config/:section" element={<ConfigPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
