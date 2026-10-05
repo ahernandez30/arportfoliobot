@@ -600,3 +600,24 @@ class StrategyTrade(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+# ---------- Stage 7: backtests ----------
+
+
+class BacktestRun(Base):
+    """A saved backtest: its setup (strategy, symbol, timeframe, inputs, dates, money), a short summary
+    for the list, and the full result for reopening it."""
+
+    __tablename__ = "backtest_runs"
+    __table_args__ = (Index("backtest_runs_user_created", "user_id", "created_at"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    strategy: Mapped[str] = mapped_column(String(40))
+    symbol: Mapped[str] = mapped_column(String(16))
+    timeframe: Mapped[str] = mapped_column(String(4))
+    setup: Mapped[dict] = mapped_column(JSONB)
+    summary: Mapped[dict] = mapped_column(JSONB)
+    result: Mapped[dict] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

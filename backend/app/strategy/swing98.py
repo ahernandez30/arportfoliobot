@@ -350,7 +350,8 @@ class SwingV98(Strategy):
                     out.add(tf)
         return out
 
-    def run(self, data: StrategyData, inputs: dict, *, luck: bool = False) -> dict:  # noqa: C901 (mirrors the script)
+    def run(self, data: StrategyData, inputs: dict, *, luck: bool = False,
+            luck_from: int | None = None) -> dict:  # noqa: C901 (mirrors the script)
         x = inputs
         bars, tf = data.bars, data.timeframe
         n = len(bars)
@@ -514,7 +515,7 @@ class SwingV98(Strategy):
                         book.gN[t.tipo] += 1
                         if (d == 1 and b.open >= tgt) or (d == -1 and b.open <= tgt):
                             book.gW[t.tipo] += 1
-                    res, res_w, motivo, ret, exit_price = False, 0, "", 0.0, None
+                    res, res_w, motivo, ret, exit_price, path = False, 0, "", 0.0, None, False
                     if i > t.bar:
                         h, via = hit_target_or_stop(d, tgt, stp, b, inside[i], intra_ok)
                         if h == 1:
@@ -523,7 +524,8 @@ class SwingV98(Strategy):
                         elif h == -1:
                             book.rS[t.tipo] -= x["stopPct"]
                             res, res_w, motivo, ret, exit_price = True, -1, "SL", -x["stopPct"], stp
-                        if res and via and inside[i]:
+                        path = bool(res and via and inside[i])
+                        if path:
                             book.nCamino += 1
                         if not res and (i - t.bar) >= x["maxVelas"]:
                             mov = (b.close - e) / e * 100.0 if d == 1 else (e - b.close) / e * 100.0
@@ -548,7 +550,7 @@ class SwingV98(Strategy):
                         trades.append({"entry_i": t.bar, "entry_time": t.time, "entry_price": e, "dir": d,
                                        "type": TYPES[t.tipo], "exit_i": i, "exit_time": b.time,
                                        "exit_price": exit_price, "reason": motivo, "ret_pct": ret,
-                                       "counted": res_w != 0, "bars": i - t.bar, "days": days})
+                                       "counted": res_w != 0, "bars": i - t.bar, "days": days, "path": path})
 
             # ---------- signal to signal (lines 489-573) ----------
             if modo_senal and not modo_cesta:
@@ -677,11 +679,12 @@ class SwingV98(Strategy):
                             az_edge[1] += ed
                             az_edge[2] += ed * ed
                         del pending[k]
-                if up_v or dn_v:
+                in_range = luck_from is None or b.time >= luck_from  # Backtest: only its date range
+                if (up_v or dn_v) and in_range:
                     sb.append(Shadow(b.close, 1, i))
                     sb.append(Shadow(b.close, -1, i))
                     pending.append((i, 1 if up_v else -1))
-                if ok_apertura:
+                if ok_apertura and in_range:
                     ab.append(Shadow(b.close, 1, i))
                     ab.append(Shadow(b.close, -1, i))
 

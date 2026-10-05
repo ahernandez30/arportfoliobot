@@ -112,5 +112,6 @@ class Strategy(ABC):
         """Other timeframes this run needs candles for."""
 
     @abstractmethod
-    def run(self, data: StrategyData, inputs: dict, *, luck: bool = False) -> dict:
-        """Signals, trades and results for the candles."""
+    def run(self, data: StrategyData, inputs: dict, *, luck: bool = False, luck_from: int | None = None) -> dict:
+        """Signals, trades and results for the candles. `luck_from` (Unix seconds) limits the luck
+        test's shadow trades to candles from then on (Backtest date ranges)."""

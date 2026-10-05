@@ -45,6 +45,7 @@ async def load(cache: md_service.TTLCache, user_id: int, md: MarketData, strateg
                         other=dict(zip(wanted[1:], got[1:])))
 
 
-async def run(strategy: Strategy, data: StrategyData, inputs: dict, *, luck: bool = False) -> dict:
+async def run(strategy: Strategy, data: StrategyData, inputs: dict, *, luck: bool = False,
+              luck_from: int | None = None) -> dict:
     # Thousands of candles: keep the web server responsive while it computes.
-    return await asyncio.to_thread(strategy.run, data, inputs, luck=luck)
+    return await asyncio.to_thread(strategy.run, data, inputs, luck=luck, luck_from=luck_from)
