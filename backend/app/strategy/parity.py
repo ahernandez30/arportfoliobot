@@ -212,5 +212,5 @@ def guess_from_filename(name: str) -> tuple[str | None, str | None]:
     m = re.search(r"(?:[A-Z]+_)?([A-Z][A-Z0-9.]{0,9}),\s*(\d+[SDWM]?|[DWM])", name)
     if not m:
         return None, None
-    tf = {"1D": "1D", "D": "1D", "1W": "1W", "W": "1W", "60": "1h", "15": "15m", "5": "5m", "1": "1m"}.get(m.group(2))
+    tf = {"1D": "1D", "D": "1D", "1W": "1W", "W": "1W", "60": "1h", "30": "30m", "15": "15m", "5": "5m", "1": "1m"}.get(m.group(2))
     return m.group(1), tf

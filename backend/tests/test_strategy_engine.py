@@ -1,5 +1,5 @@
 """The strategy engine against hand-worked candle sequences (plan rule 5: strategy logic gets the
-most tests). Names refer to docs/swing_diario_semanal_v9_35.pine."""
+most tests). Names refer to docs/swing_diario_semanal_v9_36.pine."""
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -615,3 +615,55 @@ def test_days_follow_new_york_time_across_the_clock_change():
     # Settled on the close of the 18th (127, +15.45%), which clears a 15% strike; the 17th (126, +14.5%) would not.
     sim = out["credit_spreads"]["simulation"]
     assert sim["spreads"] == 1 and out["credit_spreads"]["blocks"][0]["rows"][0]["win_all"] == 100
+
+
+# ---------- the exchange calendar (v9.36) ----------
+
+
+def test_exchange_calendar():
+    from datetime import date
+
+    from app.strategy.swing import easter, last_trading_day_of_week, nyse_closed, nyse_early_close
+
+    assert easter(2025) == date(2025, 4, 20) and nyse_closed(date(2025, 4, 18))  # Good Friday
+    assert nyse_closed(date(2026, 7, 3)) and nyse_closed(date(2021, 12, 24))  # Saturday holidays, Friday closed
+    assert nyse_closed(date(2026, 6, 19)) and not nyse_closed(date(2021, 6, 18))  # Juneteenth only from 2022
+    assert not nyse_closed(date(2021, 12, 31))  # New Year's Day on a Saturday closes no Friday
+    assert nyse_early_close(date(2025, 11, 28)) and nyse_early_close(date(2025, 12, 24)) and nyse_early_close(date(2025, 7, 3))
+    assert not nyse_early_close(date(2026, 7, 3))  # a holiday that year
+    assert last_trading_day_of_week(date(2025, 4, 17))  # Thursday before Good Friday
+    assert not last_trading_day_of_week(date(2025, 4, 16))
+    assert last_trading_day_of_week(date(2001, 9, 10))  # the market stayed shut until the next Monday
+
+
+def test_weekly_level_changes_on_thursday_when_friday_is_a_holiday():
+    # Good Friday 2025: the week of 14 April ends on Thursday the 17th.
+    d0 = datetime(2025, 4, 14, tzinfo=timezone.utc)
+
+    def d(k, o, h, lo, cl):
+        return Bar(int((d0 + timedelta(days=k)).timestamp()), o, h, lo, cl, 1)
+
+    days = [d(0, 112, 112.5, 111.5, 112), d(1, 112, 112.5, 111.5, 112), d(2, 112, 112.5, 111.5, 112),
+            d(3, 110, 110.2, 100, 100.5)]  # Thursday: the week is a red LLENA
+    weeks = [d(0, 112, 112.5, 100, 100.5)]
+    out = run(days, usarIntra=False, usarEscalera=True, other={"1W": weeks})
+    assert out["ladder"][0]["state"] == -1 and [(s["i"], s["dir"]) for s in out["signals"]] == [(3, -1)]
+
+
+def test_early_close_day_ends_on_the_1pm_candle():
+    from app.strategy.swing import last_regular_bar
+
+    t = int(datetime(2025, 11, 28, 12, 30, tzinfo=NY).timestamp())  # the Friday after Thanksgiving
+    assert last_regular_bar(Bar(t, 1, 1, 1, 1, 1), "30m")
+    assert not last_regular_bar(Bar(int(datetime(2025, 11, 21, 12, 30, tzinfo=NY).timestamp()), 1, 1, 1, 1, 1), "30m")
+    assert last_regular_bar(Bar(int(datetime(2025, 11, 21, 15, 30, tzinfo=NY).timestamp()), 1, 1, 1, 1, 1), "30m")
+
+
+def test_thirty_minute_candles():
+    from app.marketdata.bars import aggregate
+
+    base = int(datetime(2025, 11, 21, 9, 30, tzinfo=NY).timestamp())
+    fifteen = [Bar(base + k * 900, 100 + k, 101 + k, 99 + k, 100.5 + k, 10) for k in range(4)]
+    out = aggregate(fifteen, "30m")
+    assert [b.time for b in out] == [base, base + 1800]
+    assert (out[0].open, out[0].high, out[0].low, out[0].close, out[0].volume) == (100, 102, 99, 101.5, 20)

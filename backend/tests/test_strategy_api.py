@@ -63,7 +63,7 @@ def test_strategy_list():
     make_user("rafa@example.com")
     c = signed_in("rafa@example.com")
     (s,) = c.get("/api/strategy/strategies").json()
-    assert s["id"] == "swing_v98" and s["version"] == "v9.35"
+    assert s["id"] == "swing_v98" and s["version"] == "v9.36"
     keys = [i["key"] for i in s["inputs"]]
     assert "cuerpoLlena" in keys and "horaCierreSS" in keys and len(keys) == len(STRATEGIES["swing_v98"].inputs)
 

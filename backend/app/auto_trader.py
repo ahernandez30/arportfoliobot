@@ -45,7 +45,7 @@ log = logging.getLogger("arpb.auto")
 
 CYCLE_SECONDS = 20
 # Seconds after a candle's close before it is treated as closed: the provider's last prints settle.
-SETTLE = {"1m": 20, "5m": 30, "15m": 30, "1h": 60, "1D": 600, "1W": 600}
+SETTLE = {"1m": 20, "5m": 30, "15m": 30, "30m": 45, "1h": 60, "1D": 600, "1W": 600}
 # During market hours, a stock price older than this means the feed is stale.
 STALE_SECONDS = 300
 # A waiting trade that cannot be placed within this many minutes of trying is given up.

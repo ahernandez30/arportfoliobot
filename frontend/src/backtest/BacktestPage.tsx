@@ -315,7 +315,7 @@ export default function BacktestPage() {
         <div className="field">
           <span>Strategy inputs</span>
           <Segmented label="Strategy inputs" value={source} onChange={setSource} options={sourceOptions} />
-          <span className="hint">Strategy: Swing, Vela Diaria/Semanal v9.35, the same code as Master Chart and automatic trading.</span>
+          <span className="hint">Strategy: Swing, Vela Diaria/Semanal v9.36, the same code as Master Chart and automatic trading.</span>
         </div>
         <div className="grid-2">
           <Field label="From" hint="Empty: from the start of the history (as TradingView).">

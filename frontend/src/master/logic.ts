@@ -31,7 +31,7 @@ export function readInput(def: InputDef, text: string): number | string {
 export function guessFromFilename(name: string): { symbol: string | null; timeframe: Timeframe | null } {
   const m = /(?:[A-Z]+_)?([A-Z][A-Z0-9.]{0,9}),\s*(\d+[SDWM]?|[DWM])/.exec(name)
   if (!m) return { symbol: null, timeframe: null }
-  const tf: Record<string, Timeframe> = { '1D': '1D', D: '1D', '1W': '1W', W: '1W', '60': '1h', '15': '15m', '5': '5m', '1': '1m' }
+  const tf: Record<string, Timeframe> = { '1D': '1D', D: '1D', '1W': '1W', W: '1W', '60': '1h', '30': '30m', '15': '15m', '5': '5m', '1': '1m' }
   return { symbol: m[1], timeframe: tf[m[2]] ?? null }
 }
 
@@ -71,7 +71,7 @@ export function markers(r: RunResult, c: MarkerColors, opts: { exits: boolean; b
 
 /** How often to recompute: often enough to catch each candle's close. */
 export function refreshMs(tf: Timeframe): number {
-  return { '1m': 15_000, '5m': 30_000, '15m': 60_000, '1h': 60_000, '1D': 300_000, '1W': 600_000 }[tf]
+  return { '1m': 15_000, '5m': 30_000, '15m': 60_000, '30m': 60_000, '1h': 60_000, '1D': 300_000, '1W': 600_000 }[tf]
 }
 
 /** The trade rule in words, for under the results tables. */

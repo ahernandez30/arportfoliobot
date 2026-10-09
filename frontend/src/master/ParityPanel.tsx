@@ -132,7 +132,7 @@ export default function ParityPanel({ strategy }: { strategy: string }) {
   return (
     <div className="form">
       <ol className="muted steps">
-        <li>In TradingView, open the symbol on 1D or 1W with the Swing v9.35 indicator at its <b>default settings</b> and its arrows showing.</li>
+        <li>In TradingView, open the symbol on 1D or 1W with the Swing v9.36 indicator at its <b>default settings</b> and its arrows showing.</li>
         <li>Chart menu → <b>Export chart data…</b> → export, then choose that file here.</li>
         <li>The site checks the logic on TradingView's own prices, then compares the signal dates with ours and explains each difference.</li>
       </ol>

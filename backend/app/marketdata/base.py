@@ -6,8 +6,8 @@ from dataclasses import dataclass, field
 from datetime import date
 
 # Chart timeframes the site offers (plan section 6, Charts).
-TIMEFRAMES = ("1m", "5m", "15m", "1h", "1D", "1W")
-INTRADAY = ("1m", "5m", "15m", "1h")
+TIMEFRAMES = ("1m", "5m", "15m", "30m", "1h", "1D", "1W")
+INTRADAY = ("1m", "5m", "15m", "30m", "1h")
 
 
 class MarketDataError(Exception):

@@ -33,7 +33,7 @@ STREAM_URL = "wss://ws.tradier.com/v1/markets/events"
 
 # How far back each chart timeframe loads (calendar days). Tradier keeps 1-minute
 # candles for about 20 days and 5/15-minute candles for about 40 days.
-INTRADAY_SOURCE = {"1m": ("1min", 5), "5m": ("5min", 25), "15m": ("15min", 40), "1h": ("15min", 40)}
+INTRADAY_SOURCE = {"1m": ("1min", 5), "5m": ("5min", 25), "15m": ("15min", 40), "30m": ("15min", 40), "1h": ("15min", 40)}
 DAILY_SOURCE = {"1D": ("daily", 365 * 3), "1W": ("weekly", 365 * 10)}
 
 

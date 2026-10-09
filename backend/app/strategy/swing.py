@@ -1,4 +1,4 @@
-"""'Swing — Vela Diaria/Semanal v9.35', translated from docs/swing_diario_semanal_v9_35.pine.
+"""'Swing — Vela Diaria/Semanal v9.36', translated from docs/swing_diario_semanal_v9_36.pine.
 
 The translation follows the script statement by statement and in the script's order; comments
 give the script's own names so the two can be read side by side. Where the plan's summary and the
@@ -10,10 +10,10 @@ Conventions shared with TradingView:
 - Daily and weekly candles count as starting at 9:30 New York time (their session open), which
   is what the script's session checks (first candle of the session, opening window, forced close
   time) see on those charts.
-- On a daily chart every candle is the last candle of its session (session.islastbar_regular),
-  so a weekly ladder level changes at Friday's close. On intraday charts the last candle is the
-  one that ends at 16:00; on early-close days (13:00) TradingView may treat the 12:00 candle as the
-  last, which the parity check should confirm (until then, the change waits for Monday's first candle).
+- The end of a session and of a week come from the script's own New York Stock Exchange calendar
+  (v9.36, rules in nyse_closed / nyse_early_close): a weekly ladder level changes at the close of the
+  week's last trading day (Thursday when Friday is a holiday), and on early-close days (13:00) the
+  13:00 candle ends the session. On a daily chart every candle ends its session.
 
 What the site leaves out: the script's drawing options (arrows, labels, colours, table positions)
 and the ATR target/stop, which the script keeps switched off. The script's 4-hour ladder level
@@ -22,7 +22,7 @@ the last closed hour like any other level, as the script does for timeframes f_f
 """
 import math
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from app.marketdata.base import Bar
@@ -31,8 +31,8 @@ from app.strategy.base import TIMEFRAME_SECONDS, InputDef, Strategy, StrategyDat
 
 NY = ZoneInfo("America/New_York")
 TYPES = ("LLENA", "FLECO", "ENGULFING", "RACHA")
-INTRADAY = ("1m", "5m", "15m", "1h")
-VERSION = "v9.35"
+INTRADAY = ("1m", "5m", "15m", "30m", "1h")
+VERSION = "v9.36"
 
 G_SIGNAL = "1 · Candle types (Tipos de vela)"
 G_FILTERS = "2 · Signal filters (Filtros)"
@@ -285,20 +285,66 @@ def in_session(minute: int, session: str) -> bool:
     return start <= minute < end
 
 
+# ---------- the script's New York Stock Exchange calendar (v9.36) ----------
+
+# Closures for one day or more, Tuesday to Friday, since 1994 (f_feriado's "cierres especiales").
+SPECIAL_CLOSURES = {date(1994, 4, 27), date(2001, 9, 11), date(2001, 9, 12), date(2001, 9, 13), date(2001, 9, 14),
+                    date(2004, 6, 11), date(2007, 1, 2), date(2012, 10, 30), date(2018, 12, 5), date(2025, 1, 9)}
+
+
+def easter(y: int) -> date:
+    """f_pascua: Easter Sunday (the anonymous Gregorian algorithm)."""
+    a, b, c = y % 19, y // 100, y % 100
+    d, e = b // 4, b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = c // 4, c % 4
+    l_ = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l_) // 451
+    return date(y, (h + l_ - 7 * m + 114) // 31, (h + l_ - 7 * m + 114) % 31 + 1)
+
+
+def nyse_closed(d: date) -> bool:
+    """f_feriado: the exchange is closed all day. Only Tuesday to Friday matter: the days that can
+    follow another in the same week."""
+    y, mo, dd, fri = d.year, d.month, d.day, d.weekday() == 4
+    holiday = ((mo, dd) == (1, 1) or d == easter(y) - timedelta(days=2) or (y >= 2022 and (mo, dd) == (6, 19))
+               or (mo, dd) == (7, 4) or (mo, dd) == (12, 25) or (mo == 11 and d.weekday() == 3 and 22 <= dd <= 28))
+    # A holiday on a Saturday closes the Friday before (except New Year's Day).
+    saturday = fri and ((y >= 2022 and (mo, dd) == (6, 18)) or (mo, dd) == (7, 3) or (mo, dd) == (12, 24))
+    return holiday or saturday or d in SPECIAL_CLOSURES
+
+
+def nyse_early_close(d: date) -> bool:
+    """f_temprano: closes at 13:00. The Friday after Thanksgiving, and 24 December and 3 July from
+    Monday to Thursday."""
+    mon_thu = d.weekday() <= 3
+    return ((d.month == 11 and d.weekday() == 4 and 23 <= d.day <= 29) or ((d.month, d.day) == (12, 24) and mon_thu)
+            or ((d.month, d.day) == (7, 3) and mon_thu))
+
+
+def last_trading_day_of_week(d: date) -> bool:
+    """f_ultimoDiaSemana: every day left until Friday is a holiday."""
+    return all(nyse_closed(d + timedelta(days=k)) for k in range(1, 5 - d.weekday()))
+
+
 def last_regular_bar(b: Bar, tf: str) -> bool:
-    """session.islastbar_regular: the candle that ends the regular session (16:00 New York)."""
+    """f_ultimaRegular: the candle that ends the regular session (16:00, or 13:00 on early-close
+    days). On daily and weekly charts every candle does."""
     if tf not in INTRADAY:
         return True
     start = datetime.fromtimestamp(b.time, NY)
     m = start.hour * 60 + start.minute
-    return m < 960 <= m + TIMEFRAME_SECONDS[tf] // 60
+    close = 780 if nyse_early_close(start.date()) else 960
+    return m < close <= m + TIMEFRAME_SECONDS[tf] // 60
 
 
 def ends_higher_candle(b: Bar, tf: str, level_tf: str) -> bool:
     """f_finTF: this chart candle is the last one of its higher-timeframe candle."""
     last = last_regular_bar(b, tf)
     if level_tf == "1W":
-        return last and session_moment(b, tf).weekday() == 4
+        return last and last_trading_day_of_week(session_moment(b, tf).date())
     if level_tf == "1D":
         return last
     return False

@@ -12,7 +12,7 @@ from app.marketdata.base import Bar
 NY = ZoneInfo("America/New_York")
 SESSION_OPEN = time(9, 30)
 SESSION_CLOSE = time(16, 0)
-MINUTES = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}
+MINUTES = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60}
 
 
 def ny_wall_to_epoch(text: str) -> int:

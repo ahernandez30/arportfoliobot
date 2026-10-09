@@ -8,7 +8,7 @@ from app.marketdata.base import TIMEFRAMES
 from app.models import ChartLayout, DashboardLayout
 from app.user_settings import SYMBOL_RE
 
-Timeframe = Literal["1m", "5m", "15m", "1h", "1D", "1W"]
+Timeframe = Literal["1m", "5m", "15m", "30m", "1h", "1D", "1W"]
 assert set(Timeframe.__args__) == set(TIMEFRAMES)
 
 GRID_COLS = 12

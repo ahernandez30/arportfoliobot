@@ -10,7 +10,7 @@ from typing import Any
 
 from app.marketdata.base import Bar
 
-TIMEFRAME_SECONDS = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "1D": 86400, "1W": 604800}
+TIMEFRAME_SECONDS = {"1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "1D": 86400, "1W": 604800}
 
 
 class InputError(ValueError):

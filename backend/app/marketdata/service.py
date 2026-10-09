@@ -98,7 +98,7 @@ class TTLCache:
 
 # ---------- candles ----------
 
-CANDLE_TTL = {"1m": 15, "5m": 30, "15m": 60, "1h": 60, "1D": 300, "1W": 900}
+CANDLE_TTL = {"1m": 15, "5m": 30, "15m": 60, "30m": 60, "1h": 60, "1D": 300, "1W": 900}
 
 
 async def candles(cache: TTLCache, user_id: int, md: MarketData, symbol: str, timeframe: str,

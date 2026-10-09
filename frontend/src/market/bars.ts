@@ -6,10 +6,10 @@
  * candles are stamped at 00:00 UTC of their date, so the date reads the same everywhere.
  */
 
-export type Timeframe = '1m' | '5m' | '15m' | '1h' | '1D' | '1W'
-export const TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '1h', '1D', '1W']
-export const INTRADAY: Timeframe[] = ['1m', '5m', '15m', '1h']
-const MINUTES: Record<string, number> = { '1m': 1, '5m': 5, '15m': 15, '1h': 60 }
+export type Timeframe = '1m' | '5m' | '15m' | '30m' | '1h' | '1D' | '1W'
+export const TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '30m', '1h', '1D', '1W']
+export const INTRADAY: Timeframe[] = ['1m', '5m', '15m', '30m', '1h']
+const MINUTES: Record<string, number> = { '1m': 1, '5m': 5, '15m': 15, '30m': 30, '1h': 60 }
 
 export type Bar = { time: number; open: number; high: number; low: number; close: number; volume: number }
 
