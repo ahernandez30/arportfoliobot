@@ -13,7 +13,7 @@ from app.marketdata import service
 from app.marketdata.base import Bar
 from app.marketdata.bars import NY
 from app.strategy.base import StrategyData
-from app.strategy.swing98 import STRATEGIES
+from app.strategy.swing import STRATEGIES
 from tests.conftest import make_user, signed_in
 from tests.fakes import FakeMarketData
 
@@ -60,7 +60,7 @@ def engine_run(inputs=None, bars=BARS):
 ])
 def test_rebuilt_tables_equal_the_engine_over_the_whole_history(inputs):
     out, x = engine_run(inputs)
-    mine = stats.script_results(out["trades"], out["entries"], BARS, len(BARS), out["results"]["mode"], None, x["objPct"])
+    mine = stats.script_results(out["trades"], out["entries"], BARS, len(BARS), x, None)
     eng = out["results"]
     for k in ("total", "years", "candles_measured", "max_win_streak", "max_loss_streak", "real_path_trades", "mode"):
         assert mine[k] == pytest.approx(eng[k]), k
@@ -72,7 +72,7 @@ def test_rebuilt_tables_equal_the_engine_over_the_whole_history(inputs):
 def test_a_range_counts_only_trades_opened_in_it():
     out, x = engine_run()
     start = day(200)
-    mine = stats.script_results(out["trades"], out["entries"], BARS, len(BARS), "target_stop", start, x["objPct"])
+    mine = stats.script_results(out["trades"], out["entries"], BARS, len(BARS), x, start)
     expected = [t for t in out["trades"] if t["entry_time"] >= start and t["counted"]]
     assert mine["total"]["wins"] + mine["total"]["losses"] == len(expected) > 0
     assert mine["candles_measured"] == 200

@@ -7,7 +7,7 @@ import { useAction } from '../config/hooks'
 import { formatDateTime, parseNumber, SYMBOL_RE } from '../forms'
 import { changeClass, formatPct, formatPrice, INTRADAY, TIMEFRAMES, type Timeframe } from '../market/bars'
 import { ruleText } from '../master/logic'
-import { LuckPanel, ResultsPanel } from '../master/ResultsPanel'
+import { CreditSpreadsPanel, LuckPanel, ResultsPanel } from '../master/ResultsPanel'
 import { formatMoney } from '../money'
 import '../capital/capital.css'
 import '../master/master.css'
@@ -177,7 +177,7 @@ function Trades({ run, tz }: { run: BacktestRun; tz: string }) {
 function Result({ run, tz }: { run: BacktestRun; tz: string }) {
   const r = run.result!
   const s = run.setup
-  const [tab, setTab] = useState<'trades' | 'types' | 'years' | 'luck'>('trades')
+  const [tab, setTab] = useState<'trades' | 'types' | 'years' | 'luck' | 'spreads'>('trades')
   const optionsShown = r.notes.options_source != null
   return (
     <>
@@ -201,7 +201,7 @@ function Result({ run, tz }: { run: BacktestRun; tz: string }) {
       </div>
       <div className="panel">
         <div className="segmented tabs" role="tablist">
-          {([['trades', 'Trades'], ['types', 'By candle type'], ['years', 'By year'], ['luck', 'Luck test']] as const).map(([k, l]) => (
+          {([['trades', 'Trades'], ['types', 'By candle type'], ['years', 'By year'], ['luck', 'Luck test'], ['spreads', 'Credit spreads']] as const).map(([k, l]) => (
             <button key={k} type="button" aria-pressed={tab === k} onClick={() => setTab(k)}>{l}</button>
           ))}
         </div>
@@ -209,6 +209,7 @@ function Result({ run, tz }: { run: BacktestRun; tz: string }) {
         {tab === 'types' && <ResultsPanel r={r.results} ruleText={ruleText(s.inputs)} />}
         {tab === 'years' && <Years run={run} />}
         {tab === 'luck' && (r.luck ? <LuckPanel luck={r.luck} /> : <p className="muted">No luck test for this run.</p>)}
+        {tab === 'spreads' && (r.credit_spreads ? <CreditSpreadsPanel cs={r.credit_spreads} /> : <p className="muted">No credit-spread statistics for this run (saved before v9.35).</p>)}
       </div>
     </>
   )
@@ -314,7 +315,7 @@ export default function BacktestPage() {
         <div className="field">
           <span>Strategy inputs</span>
           <Segmented label="Strategy inputs" value={source} onChange={setSource} options={sourceOptions} />
-          <span className="hint">Strategy: Swing, Vela Diaria/Semanal v9.8, the same code as Master Chart and automatic trading.</span>
+          <span className="hint">Strategy: Swing, Vela Diaria/Semanal v9.35, the same code as Master Chart and automatic trading.</span>
         </div>
         <div className="grid-2">
           <Field label="From" hint="Empty: from the start of the history (as TradingView).">

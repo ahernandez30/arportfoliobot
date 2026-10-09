@@ -1,7 +1,7 @@
 /** Shapes returned by the backtest endpoints (backend app/routes_backtest). */
 import type { TradeSettings } from '../api'
 import type { Timeframe } from '../market/bars'
-import type { Inputs, Luck, Results } from '../master/types'
+import type { CreditSpreads, Inputs, Luck, Results } from '../master/types'
 
 export type ColumnKey = 'stock' | 'directional' | 'credit_spread' | 'debit_spread'
 
@@ -61,6 +61,7 @@ export type TradeRow = {
 export type BacktestResult = {
   results: Results
   luck: Luck | null
+  credit_spreads: CreditSpreads | null
   columns: Partial<Record<ColumnKey, Money>>
   skipped: Partial<Record<ColumnKey, number>>
   trades: TradeRow[]

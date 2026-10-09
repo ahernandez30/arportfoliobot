@@ -39,7 +39,7 @@ from app.paper import PaperError
 from app.paper_rules import Book
 from app.strategy import service
 from app.strategy.base import TIMEFRAME_SECONDS, InputError, check_inputs
-from app.strategy.swing98 import STRATEGIES
+from app.strategy.swing import STRATEGIES
 
 log = logging.getLogger("arpb.auto")
 
@@ -52,7 +52,8 @@ STALE_SECONDS = 300
 ENTRY_TRY_MINUTES = 15
 ACTIVE = ("waiting", "open", "floating")
 # The engine's exit reasons (the script's own names) as Account Manager reasons.
-REASONS = {"TP": "take_profit", "SL": "stop_loss", "SIG": "signal", "corte": "time", "HORA": "time"}
+REASONS = {"TP": "take_profit", "SL": "stop_loss", "SIG": "signal", "contra": "signal", "cambio W": "signal",
+           "corte": "time", "HORA": "time"}
 REASON_WORDS = {"take_profit": "the strategy's target on the stock price", "stop_loss": "the strategy's stop on the stock price",
                 "signal": "the opposite signal", "time": "the strategy's time rule",
                 "expiry": "its expiration being next (closed before expiring)"}

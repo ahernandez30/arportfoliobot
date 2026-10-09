@@ -52,10 +52,18 @@ export type TypeRow = {
   days_loss: number | null
 }
 
+export type SideRow = { side: 'long' | 'short'; wins: number; losses: number; win_rate: number | null; r_avg: number | null }
+
 export type Results = {
   by_type: TypeRow[]
   total: { wins: number; losses: number; win_rate: number | null; floating: number; r_avg: number | null; days_win: number | null; days_loss: number | null }
-  years: { year: number; wins: number; losses: number }[]
+  /** Wins and losses by the year the trade opened; dollars by the year it closed (the script's table). */
+  years: { year: number; wins: number; losses: number; pnl?: number; pnl_pct?: number }[]
+  // The rest came with v9.35: backtests saved before it do not have them.
+  by_side?: SideRow[]
+  capital?: { start: number; pct_per_trade: number; compound: boolean; final: number; gain: number; return_pct: number; trades: number; max_drop_pct: number }
+  /** Everything that closes on one candle counts as one hit. */
+  hits?: { max_won_in_a_row: number; max_lost_in_a_row: number; worst_run: number; worst_run_pct: number }
   candles_measured: number
   max_win_streak: number
   max_loss_streak: number
@@ -66,9 +74,40 @@ export type Results = {
 }
 
 export type Luck = {
-  rule: { objPct: number; stopPct: number; maxVelas: number }
+  rule: { objPct: number; stopPct: number; maxVelas: number; fixed: boolean }
   rows: { label: string; win_rate: number | null; r_avg: number | null; n: number }[]
   verdicts: { label: string; t: number | null; luck_pct: number | null; verdict: string }[]
+}
+
+export type SpreadSide = { n: number; needed: number | null; random_payout: number | null; r: number | null }
+
+export type CreditSpreads = {
+  width_pct: number
+  target_payout: number
+  blocks: {
+    days: number
+    rows: { strike_pct: number; win_all: number | null; win_all_random: number | null; lose_all: number | null; long: SpreadSide; short: SpreadSide; total_r: number | null; closest: boolean }[]
+  }[]
+  simulation: {
+    days: number
+    strike_pct: number
+    payout: number
+    risk_per_spread: number
+    account: number
+    total: number
+    total_pct: number
+    spreads: number
+    win_rate: number | null
+    lose_all_rate: number | null
+    max_drop: number
+    max_drop_pct: number
+    worst_run: number
+    max_open: number
+    max_at_risk: number
+    broke: boolean
+    lowest_account: number
+    years: { year: number; pnl: number }[]
+  }
 }
 
 export type Position = { entry: number; dir: 1 | -1; entry_time: number; type: string; target: number | null; stop: number | null; entries?: number }
@@ -86,9 +125,13 @@ export type RunResult = {
   position: Position | null
   results: Results
   ladder: { tf: Timeframe; active: boolean; state: number }[]
+  /** What is stopping new signals right now (the script's “Ahora” row). */
+  now: string[]
+  open_now: { longs: number; shorts: number }
   intrabar: { on: boolean; tf: Timeframe; covered_from: number | null }
   ma: { time: number; value: number }[]
   luck?: Luck
+  credit_spreads?: CreditSpreads
 }
 
 export type MasterState = { strategy: string; symbol: string; timeframe: Timeframe; inputs: Inputs }

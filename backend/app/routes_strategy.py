@@ -19,7 +19,7 @@ from app.models import MasterChartState, ParityCheck, StrategyPreset, User
 from app.routes_market import _provider, _symbol
 from app.strategy import parity, service
 from app.strategy.base import InputError, Strategy, check_inputs
-from app.strategy.swing98 import STRATEGIES
+from app.strategy.swing import STRATEGIES
 
 router = APIRouter(prefix="/api/strategy")
 

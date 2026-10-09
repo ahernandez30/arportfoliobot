@@ -35,7 +35,7 @@ export function guessFromFilename(name: string): { symbol: string | null; timefr
   return { symbol: m[1], timeframe: tf[m[2]] ?? null }
 }
 
-const SHORT: Record<string, string> = { LLENA: 'LL', FLECO: 'FL', ENGULFING: 'EN' }
+const SHORT: Record<string, string> = { LLENA: 'LL', FLECO: 'FL', ENGULFING: 'EN', RACHA: 'RA' }
 
 export type MarkerColors = { buy: string; sell: string; gain: string; loss: string; muted: string }
 

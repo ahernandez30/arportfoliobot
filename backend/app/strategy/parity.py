@@ -19,7 +19,7 @@ from datetime import date, datetime, timedelta, timezone
 from app.marketdata.bars import NY, date_to_epoch
 from app.marketdata.base import Bar
 from app.strategy.base import Strategy, StrategyData
-from app.strategy.swing98 import classify
+from app.strategy.swing import classify
 
 MAX_LISTED = 300
 
@@ -120,7 +120,11 @@ def parse_export(text: str, tf: str) -> list[TvRow]:
 
 
 def _sig_map(result: dict, bars: list[Bar], tf: str) -> dict[str, dict]:
-    return {our_key(bars[s["i"]], tf): s for s in result["signals"]}
+    """One signal per candle; when a candle opens both a buy and a sell, the buy (as the export is read)."""
+    out: dict[str, dict] = {}
+    for s in result["signals"]:
+        out.setdefault(our_key(bars[s["i"]], tf), s)
+    return out
 
 
 def _ohlc(b: Bar | None) -> dict | None:

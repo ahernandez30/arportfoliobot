@@ -7,7 +7,7 @@ from app import routes_market
 from app.marketdata import service
 from app.marketdata.base import Bar
 from app.strategy import parity
-from app.strategy.swing98 import STRATEGIES
+from app.strategy.swing import STRATEGIES
 from tests.conftest import make_user, signed_in
 from tests.fakes import FakeMarketData
 
@@ -63,19 +63,20 @@ def test_strategy_list():
     make_user("rafa@example.com")
     c = signed_in("rafa@example.com")
     (s,) = c.get("/api/strategy/strategies").json()
-    assert s["id"] == "swing_v98" and s["version"] == "v9.8"
+    assert s["id"] == "swing_v98" and s["version"] == "v9.35"
     keys = [i["key"] for i in s["inputs"]]
     assert "cuerpoLlena" in keys and "horaCierreSS" in keys and len(keys) == len(STRATEGIES["swing_v98"].inputs)
 
 
 def test_run(rafa):
-    r = rafa.post("/api/strategy/run", json=body(luck=True))
+    # The quiet candles here are all green, so the RACHA (on by default) is switched off.
+    r = rafa.post("/api/strategy/run", json=body(luck=True, inputs={"usarRacha": False}))
     assert r.status_code == 200, r.text
     out = r.json()
     assert len(out["bars"]) == 60 and out["closed"] == 60  # old candles are all closed
     assert [s["dir"] for s in out["signals"]][:2] == [1, -1]
     assert out["inputs"]["cuerpoLlena"] == 85
-    assert out["results"]["mode"] == "target_stop" and "luck" in out
+    assert out["results"]["mode"] == "target_stop" and "luck" in out and "credit_spreads" in out
 
 
 def test_run_refuses_bad_inputs(rafa):

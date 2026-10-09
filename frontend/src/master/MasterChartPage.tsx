@@ -12,8 +12,8 @@ import InputsPanel from './InputsPanel'
 import { changedKeys, defaults, markers, presetFor, refreshMs, ruleText } from './logic'
 import ParityPanel from './ParityPanel'
 import TradePlanPanel from './TradePlanPanel'
-import { LuckPanel, ResultsPanel } from './ResultsPanel'
-import type { InputValue, Luck, MasterState, Preset, RunResult, StrategyDef } from './types'
+import { CreditSpreadsPanel, LuckPanel, ResultsPanel } from './ResultsPanel'
+import type { CreditSpreads, InputValue, Luck, MasterState, Preset, RunResult, StrategyDef } from './types'
 import '../market/market.css'
 import '../capital/capital.css'
 import './master.css'
@@ -64,11 +64,11 @@ export default function MasterChartPage() {
   const [error, setError] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
   // The luck test is slower, so it runs on request; it belongs to the settings it ran with.
-  const [luckRun, setLuckRun] = useState<{ key: string; luck: Luck } | null>(null)
+  const [luckRun, setLuckRun] = useState<{ key: string; luck: Luck; cs: CreditSpreads | null } | null>(null)
   const [showExits, setShowExits] = useState(true)
   const [showBlocked, setShowBlocked] = useState(false)
   const [symbolText, setSymbolText] = useState('')
-  const [tab, setTab] = useState<'results' | 'luck' | 'signals' | 'parity'>('results')
+  const [tab, setTab] = useState<'results' | 'luck' | 'spreads' | 'signals' | 'parity'>('results')
   const pegAction = useAction()
   const navigate = useNavigate()
   const runId = useRef(0)
@@ -168,14 +168,15 @@ export default function MasterChartPage() {
 
   const stateKey = JSON.stringify(state)
   const luck = luckRun?.key === stateKey ? luckRun.luck : null
+  const spreads = luckRun?.key === stateKey ? luckRun.cs : null
 
-  async function runLuck() {
+  async function runLuck(to: 'luck' | 'spreads' = 'luck') {
     if (!state) return
-    setTab('luck')
+    setTab(to)
     const key = JSON.stringify(state)
     try {
       const r = await api<RunResult>('POST', '/api/strategy/run', { ...state, luck: true })
-      if (r.luck) setLuckRun({ key, luck: r.luck })
+      if (r.luck) setLuckRun({ key, luck: r.luck, cs: r.credit_spreads ?? null })
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not run the luck test.')
     }
@@ -252,7 +253,7 @@ export default function MasterChartPage() {
             </div>
             {result && (
               <p className="muted legend-line">
-                <span className="legend-buy">▲ BUY</span> · <span className="legend-sell">▼ SELL</span> · LL = LLENA, FL = FLECO, EN = ENGULFING
+                <span className="legend-buy">▲ BUY</span> · <span className="legend-sell">▼ SELL</span> · LL = LLENA, FL = FLECO, EN = ENGULFING, RA = RACHA
                 {result.ma.length > 0 && ' · line: moving-average filter'}
                 {ladderOn && <> · ladder: {result.ladder.filter((l) => l.active).map((l) => `${l.tf} ${l.state === 1 ? '▲' : l.state === -1 ? '▼' : '='}`).join(' ')}</>}
                 {result.intrabar.on && result.intrabar.covered_from && <> · real path ({result.intrabar.tf}) available from {when(result.intrabar.covered_from, state.timeframe, tz)}; older candles use open/high/low/close</>}
@@ -262,14 +263,19 @@ export default function MasterChartPage() {
 
           <div className="panel">
             <div className="segmented tabs" role="tablist">
-              {([['results', 'Results'], ['signals', 'Recent signals'], ['luck', 'Luck test'], ['parity', 'Parity check']] as const).map(([k, l]) => (
-                <button key={k} type="button" aria-pressed={tab === k} onClick={() => (k === 'luck' && !luck ? void runLuck() : setTab(k))}>{l}</button>
+              {([['results', 'Results'], ['signals', 'Recent signals'], ['luck', 'Luck test'], ['spreads', 'Credit spreads'], ['parity', 'Parity check']] as const).map(([k, l]) => (
+                <button key={k} type="button" aria-pressed={tab === k} onClick={() => ((k === 'luck' || k === 'spreads') && !luck ? void runLuck(k) : setTab(k))}>{l}</button>
               ))}
             </div>
-            {tab === 'results' && result && <ResultsPanel r={result.results} ruleText={ruleText(state.inputs)} />}
+            {tab === 'results' && result && <ResultsPanel r={result.results} ruleText={ruleText(state.inputs)} now={result.now} openNow={result.open_now} />}
             {tab === 'luck' && (luck ? <LuckPanel luck={luck} /> : (
               <div className="actions">
                 <button className="btn btn-small btn-primary" onClick={() => void runLuck()}>Run the luck test with these settings</button>
+              </div>
+            ))}
+            {tab === 'spreads' && (spreads ? <CreditSpreadsPanel cs={spreads} /> : (
+              <div className="actions">
+                <button className="btn btn-small btn-primary" onClick={() => void runLuck('spreads')}>Run the credit-spread statistics with these settings</button>
               </div>
             ))}
             {tab === 'signals' && result && (
