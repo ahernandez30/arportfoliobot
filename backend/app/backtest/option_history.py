@@ -21,7 +21,7 @@ from app.marketdata.base import DailyClose
 RATE = 0.04  # yearly interest rate used for pricing
 VOL_DAYS = 30  # trading days of closes behind the volatility
 MIN_VOL, MAX_VOL = 0.05, 3.0
-HALF_SPREAD_PCT = 0.015  # half the bid/ask spread, as a share of the price...
+HALF_SPREAD_PCT = 0.0045  # half the bid/ask spread, as a share of the price (real TSLA: 0.44%, checked 2026-10-09)...
 MIN_HALF_SPREAD = 0.025  # ...but never under 2.5 cents
 TICK = Decimal("0.01")
 
@@ -108,9 +108,10 @@ class ModelOptionHistory(OptionHistory):
         self._days = {s: [c.day for c in rows] for s, rows in self.daily.items()}
         self.rate = rate
 
-    def vol(self, symbol: str, day: date) -> float | None:
+    def vol(self, symbol: str, day: date, after_close: bool = True) -> float | None:
+        """Volatility from the closes known then: the day's own close only once it has happened."""
         days = self._days.get(symbol, [])
-        i = bisect.bisect_right(days, day)
+        i = bisect.bisect_right(days, day) if after_close else bisect.bisect_left(days, day)
         closes = [c.close for c in self.daily[symbol][max(0, i - VOL_DAYS - 1):i]] if days else []
         return historical_vol(closes)
 
@@ -128,7 +129,7 @@ class ModelOptionHistory(OptionHistory):
 
     def quote(self, symbol: str, option_type: str, strike: Decimal, expiration: date, at: datetime,
               underlying: float) -> tuple[Decimal | None, Decimal | None]:
-        vol = self.vol(symbol, at.date())
+        vol = self.vol(symbol, at.date(), after_close=at.hour >= 16)
         if vol is None:
             return None, None
         close = datetime(expiration.year, expiration.month, expiration.day, 16, 0, tzinfo=at.tzinfo)

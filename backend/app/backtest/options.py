@@ -21,7 +21,8 @@ from app.paper_rules import Book, market_price
 from app.strategy.base import TIMEFRAME_SECONDS
 
 HUNDRED = Decimal(100)
-STRIKE_WINDOW = 0.35  # strikes looked at: within this share of the price
+STRIKE_WINDOW = 0.35  # strikes looked at: within this share of the price...
+NEAREST_STRIKES = 8  # ...and of those, the ones nearest the target
 
 
 def close_moment(bar_time: int, tf: str) -> datetime:
@@ -99,11 +100,15 @@ def simulate(structure: str, settings: auto_plan.TradeSettings, trades: list[dic
                 continue
             otype = auto_plan.option_type_for(structure, t["dir"])
             lo, hi = leg.price * (1 - STRIKE_WINDOW), leg.price * (1 + STRIKE_WINDOW)
+            # Only the strikes nearest the target are priced: the choice is the nearest one with a
+            # two-sided quote and, for a spread, its neighbour (real prices are fetched per contract).
+            tgt = auto_plan.target_strike(Decimal(str(leg.price)), t["dir"], rules.distance_pct, settings.side, structure)
+            near = sorted((k for k in history.strikes(symbol, at, leg.price) if lo <= float(k) <= hi),
+                          key=lambda k: (abs(k - tgt), k))[:NEAREST_STRIKES]
             chain = []
-            for k in history.strikes(symbol, at, leg.price):
-                if lo <= float(k) <= hi:
-                    bid, ask = history.quote(symbol, otype, k, exp, at, leg.price)
-                    chain.append(auto_plan.Leg(k, bid, ask, f"{otype}{k}"))
+            for k in sorted(near):
+                bid, ask = history.quote(symbol, otype, k, exp, at, leg.price)
+                chain.append(auto_plan.Leg(k, bid, ask, f"{otype}{k}"))
             choice = auto_plan.choose(structure, t["dir"], Decimal(str(leg.price)), rules.distance_pct, settings.side, chain)
             if isinstance(choice, str):
                 row["problem"] = choice

@@ -66,7 +66,14 @@ export type BacktestResult = {
   skipped: Partial<Record<ColumnKey, number>>
   trades: TradeRow[]
   range: { first: number | null; last: number | null; history_from: number | null }
-  notes: { options_source: string | null; rate_pct: number; vol_days: number; fill_rule: 'bid_ask' | 'mid' }
+  notes: {
+    options_source: string | null
+    rate_pct: number
+    vol_days: number
+    fill_rule: 'bid_ask' | 'mid'
+    /** How far the estimate was from real prices for this symbol (Backtest plan, step 2). */
+    estimate_check?: { period: string; overall: { n: number; typical_miss_pct: number; bias_pct: number; middle_80_pct: [number, number] } } | null
+  }
 }
 
 export type BacktestSetup = {
@@ -83,6 +90,8 @@ export type BacktestSetup = {
   structures: string[]
   trade: TradeSettings
   fill_rule: 'bid_ask' | 'mid'
+  /** Older runs (before real prices) have none: the estimate. */
+  option_prices?: 'estimate' | 'real'
 }
 
 type Summary = Partial<Record<ColumnKey, Pick<Money, 'trades' | 'total' | 'total_pct' | 'win_rate' | 'max_drop_pct'>>>
@@ -96,6 +105,27 @@ export type BacktestRun = {
   summary: Summary
   created_at: string
   result?: BacktestResult
+}
+
+/** A download of real option prices from Databento (Backtest plan, step 3). */
+export type DataJob = {
+  id: number
+  status: 'estimating' | 'confirm' | 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
+  plan: { chain_days?: number; moments?: number; contract_minutes?: number; chains_usd?: number; prices_usd?: number; positions?: number; prices_known?: boolean }
+  estimate_usd: number | null
+  limit_usd: number | null
+  spent_usd: number
+  progress: { round?: number; phase?: string; done?: number; total?: number; left?: unknown }
+  error: string | null
+  symbol: string | null
+  timeframe: Timeframe | null
+}
+
+/** Candles and real option prices stored for the user. */
+export type StoredHistory = {
+  candles: { symbol: string; timeframe: Timeframe; candles: number; from: string; to: string; source: string }[]
+  options: { chains: { underlying: string; days: number; from: string; to: string }[]; quote_samples: number; spent_usd: number; available_from: string }
+  databento_key: boolean
 }
 
 /** What Master Chart's “Send to Backtest” carries. */

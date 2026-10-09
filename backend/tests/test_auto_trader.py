@@ -305,7 +305,13 @@ def test_size_limit_applies_to_the_most_it_can_lose(md, rafa, db, engine):
     assert t.status == "refused" and "could lose" in t.detail and "largest order allowed" in t.detail
 
 
-def test_closing_a_strategy_spread_by_hand(md, rafa, db, engine):
+def test_closing_a_strategy_spread_by_hand(md, rafa, db, engine, monkeypatch):
+    from app import routes_paper
+
+    async def market_open(*_args):
+        return True
+
+    monkeypatch.setattr(routes_paper, "_clock_open", market_open)  # whatever the time the tests run at
     switch_on(rafa, db)
     cycle(engine, rafa.user_id)
     t = strategy_trades(db)[0]

@@ -13,13 +13,14 @@ import '../capital/capital.css'
 import '../master/master.css'
 import EquityChart from './EquityChart'
 import { COLUMN_LABEL, COLUMN_ORDER, optionTotal, reasonWord } from './logic'
-import type { BacktestRun, ColumnKey, Money, SentSetup } from './types'
+import type { BacktestRun, ColumnKey, DataJob, Money, SentSetup, StoredHistory } from './types'
 import './backtest.css'
 
 const QUICK = ['TSLA', 'QQQ', 'SPY']
 const STRATEGY = 'swing_v98'
 type InputsSource = 'pegged' | 'given' | 'defaults'
 type OptionsMode = 'off' | 'plan' | 'compare'
+type OptionPrices = 'estimate' | 'real'
 
 function when(t: number | null | undefined, tf: Timeframe, tz: string): string {
   if (t == null) return '—'
@@ -48,6 +49,7 @@ const METRICS: { label: string; cell: (m: Money) => { text: string; cls?: string
 function Summary({ run }: { run: BacktestRun }) {
   const r = run.result!
   const cols = COLUMN_ORDER.filter((k) => r.columns[k])
+  const real = run.setup.option_prices === 'real'
   return (
     <div className="table-wrap">
       <table className="table compare-table">
@@ -55,7 +57,7 @@ function Summary({ run }: { run: BacktestRun }) {
           <tr>
             <th />
             {cols.map((k) => (
-              <th key={k} className="right">{COLUMN_LABEL[k]}{k !== 'stock' && <span className="badge badge-warn">estimate</span>}</th>
+              <th key={k} className="right">{COLUMN_LABEL[k]}{k !== 'stock' && (real ? <span className="badge badge-on">real prices</span> : <span className="badge badge-warn">estimate</span>)}</th>
             ))}
           </tr>
         </thead>
@@ -189,11 +191,23 @@ function Result({ run, tz }: { run: BacktestRun; tz: string }) {
           {optionsShown && <> · options: risk {formatMoney(s.trade.risk_usd)} per trade, strike {s.trade.distance_mode === 'auto' ? 'at the average winning move so far' : `${s.trade.distance_pct}%`} {s.trade.side === 'toward' ? 'toward' : 'away from'} the signal</>}
         </p>
         <Summary run={run} />
-        {optionsShown && (
+        {optionsShown && s.option_prices === 'real' && (
+          <p className="msg msg-ok">
+            Option results use <b>real prices</b>: the listed option chain on each entry day and the best bid and ask across all exchanges (OPRA, from your Databento
+            account) at the minute each trade opens and closes. Databento’s options history starts on 28 March 2023; earlier trades, and moments with no two-sided
+            quote, show as “Signals with no option trade”.
+          </p>
+        )}
+        {optionsShown && s.option_prices !== 'real' && (
           <p className="msg msg-warn">
             Option results are an <b>estimate</b>: prices come from a standard pricing model using the stock’s volatility over the previous {r.notes.vol_days} trading days and
             a {r.notes.rate_pct}% interest rate, with weekly Friday expirations and a bid/ask spread. Real past prices can differ a lot (around earnings especially).
-            Databento’s real option history can replace the estimate later.
+            Choose “Real (Databento)” to use real prices from 28 March 2023 on.
+            {r.notes.estimate_check && (
+              <> Checked against {r.notes.estimate_check.overall.n.toLocaleString()} real {run.symbol} prices ({r.notes.estimate_check.period}): a typical estimated price was
+                {' '}{r.notes.estimate_check.overall.typical_miss_pct}% off (usually too low), and one in ten was off by more than about
+                {' '}{Math.max(-r.notes.estimate_check.overall.middle_80_pct[0], r.notes.estimate_check.overall.middle_80_pct[1])}%.</>
+            )}
           </p>
         )}
         <EquityChart columns={r.columns} />
@@ -215,6 +229,85 @@ function Result({ run, tz }: { run: BacktestRun; tz: string }) {
   )
 }
 
+function HistoryHint({ stored, symbol, timeframe }: { stored: StoredHistory | null; symbol: string; timeframe: Timeframe }) {
+  const c = stored?.candles.find((x) => x.symbol === symbol && x.timeframe === timeframe)
+  if (!c) return <p className="hint">Intraday history only goes back about 40 days with Tradier, so this backtest is short. Older candles can be imported on the server.</p>
+  return (
+    <p className="hint">
+      Stored {symbol} {timeframe} history: {c.candles.toLocaleString()} candles from {c.from.slice(0, 10)} ({c.source}), then Tradier’s recent candles.
+    </p>
+  )
+}
+
+const JOB_POLL_MS = 3000
+
+/** A download of real option prices: what it needs and costs, the yes, its progress. */
+function JobPanel({ job, onChange, onDone }: { job: DataJob; onChange: (j: DataJob | null) => void; onDone: () => void }) {
+  const action = useAction()
+  const live = job.status === 'estimating' || job.status === 'queued' || job.status === 'running'
+  useEffect(() => {
+    if (!live) return
+    const t = window.setTimeout(() => {
+      api<DataJob>('GET', `/api/backtest/data-jobs/${job.id}`).then((j) => {
+        onChange(j)
+        if (j.status === 'done') onDone()
+      }).catch(() => undefined)
+    }, JOB_POLL_MS)
+    return () => window.clearTimeout(t)
+  }, [job, live, onChange, onDone])
+
+  const p = job.plan
+  const prog = job.progress
+  return (
+    <div className="panel form">
+      <h2>Real option prices for {job.symbol} {job.timeframe}</h2>
+      {job.status === 'estimating' && <p className="muted">Some real prices this backtest needs are not stored yet. Asking Databento what they cost…</p>}
+      {job.status === 'confirm' && (
+        <>
+          <p>
+            To download: the option chain on <b>{p.chain_days ?? 0}</b> day{p.chain_days === 1 ? '' : 's'} a trade opens
+            {p.prices_known ? <>, and prices at <b>{p.moments ?? 0}</b> moments trades open or close</> : <>, then the prices of the contracts each trade picks (about {p.positions ?? 0} option positions)</>}.
+          </p>
+          <p>
+            Databento’s estimate: <b className="num">{formatMoney(job.estimate_usd)}</b>. The download stops before it passes <b className="num">{formatMoney(job.limit_usd)}</b>.
+            {!p.prices_known && ' The price part is a rough guess until the chains are known.'} Everything downloaded is kept, so it is paid for once.
+          </p>
+          <div className="actions">
+            <button className="btn btn-primary" disabled={action.busy}
+              onClick={() => void action.run(async () => onChange(await api<DataJob>('POST', `/api/backtest/data-jobs/${job.id}/confirm`)))}>
+              Download (up to {formatMoney(job.limit_usd)})
+            </button>
+            <button className="btn" disabled={action.busy}
+              onClick={() => void action.run(async () => onChange(await api<DataJob>('POST', `/api/backtest/data-jobs/${job.id}/cancel`)))}>
+              Cancel
+            </button>
+          </div>
+        </>
+      )}
+      {(job.status === 'queued' || job.status === 'running') && (
+        <>
+          <p className="muted">
+            {job.status === 'queued' ? 'Starting…' : <>Downloading {prog.phase ?? ''}{prog.total ? <>: <span className="num">{prog.done}/{prog.total}</span></> : ''}{prog.round && prog.round > 1 ? ` (round ${prog.round})` : ''}…</>}
+            {' '}Spent <span className="num">{formatMoney(job.spent_usd)}</span> of up to {formatMoney(job.limit_usd)}. You can leave this page; the download carries on.
+          </p>
+          <div className="actions">
+            <button className="btn btn-small" disabled={action.busy}
+              onClick={() => void action.run(async () => onChange(await api<DataJob>('POST', `/api/backtest/data-jobs/${job.id}/cancel`)))}>
+              Stop the download
+            </button>
+          </div>
+        </>
+      )}
+      {job.status === 'done' && <p className="msg msg-ok">Downloaded ({formatMoney(job.spent_usd)}). Running the backtest with real prices…</p>}
+      {job.status === 'failed' && <p className="msg msg-error">{job.error} Spent {formatMoney(job.spent_usd)}.</p>}
+      {job.status === 'cancelled' && (
+        <p className="muted">Cancelled. Spent {formatMoney(job.spent_usd)}. <button className="btn btn-small" onClick={() => onChange(null)}>Close</button></p>
+      )}
+      <StatusLine status={action.status} />
+    </div>
+  )
+}
+
 /** Backtest: the same strategy code as Master Chart over a date range (plan section 6). */
 export default function BacktestPage() {
   const me = useMe()
@@ -229,6 +322,10 @@ export default function BacktestPage() {
   const [cash, setCash] = useState('100000')
   const [dollars, setDollars] = useState('10000')
   const [optionsMode, setOptionsMode] = useState<OptionsMode>('compare')
+  const [optionPrices, setOptionPrices] = useState<OptionPrices>('estimate')
+  const [job, setJob] = useState<DataJob | null>(null)
+  const [lastBody, setLastBody] = useState<object | null>(null)
+  const [stored, setStored] = useState<StoredHistory | null>(null)
   const [runs, setRuns] = useState<BacktestRun[]>([])
   const [shown, setShown] = useState<BacktestRun | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -239,6 +336,10 @@ export default function BacktestPage() {
     api<BacktestRun[]>('GET', '/api/backtest/runs').then(setRuns).catch(() => undefined)
   }, [])
   useEffect(loadRuns, [loadRuns])
+  const loadStored = useCallback(() => {
+    api<StoredHistory>('GET', '/api/backtest/history').then(setStored).catch(() => undefined)
+  }, [])
+  useEffect(loadStored, [loadStored])
 
   function pickSymbol(s: string) {
     setSymbol(s)
@@ -253,17 +354,28 @@ export default function BacktestPage() {
     const c = parseNumber(cash)
     const d = parseNumber(dollars)
     if (c == null || c <= 0 || d == null || d <= 0) return setError('Enter amounts above zero for starting cash and dollars per trade.')
+    const body = {
+      strategy: sent?.strategy ?? STRATEGY, symbol: s, timeframe, inputs_source: source,
+      inputs: source === 'given' && sent ? sent.inputs : {}, start: start || null, end: end || null,
+      starting_cash: c, stock_dollars: d, options: optionsMode, option_prices: optionsMode === 'off' ? 'estimate' : optionPrices,
+    }
+    await send(body)
+  }
+
+  /** Runs a backtest; with real prices still to download, shows the download instead. */
+  async function send(body: object) {
     setRunning(true)
     setError(null)
+    setLastBody(body)
     try {
-      const body = {
-        strategy: sent?.strategy ?? STRATEGY, symbol: s, timeframe, inputs_source: source,
-        inputs: source === 'given' && sent ? sent.inputs : {}, start: start || null, end: end || null,
-        starting_cash: c, stock_dollars: d, options: optionsMode,
+      const r = await api<BacktestRun | { job: DataJob }>('POST', '/api/backtest/run', body)
+      if ('job' in r) {
+        setJob(r.job)
+      } else {
+        setJob(null)
+        setShown(r)
+        loadRuns()
       }
-      const r = await api<BacktestRun>('POST', '/api/backtest/run', body)
-      setShown(r)
-      loadRuns()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'The backtest could not run.')
     } finally {
@@ -311,7 +423,7 @@ export default function BacktestPage() {
             {TIMEFRAMES.map((t) => <button key={t} type="button" aria-pressed={timeframe === t} onClick={() => setTimeframe(t)}>{t}</button>)}
           </div>
         </div>
-        {INTRADAY.includes(timeframe) && <p className="hint">Intraday history only goes back about 40 days with Tradier, so intraday backtests are short.</p>}
+        {INTRADAY.includes(timeframe) && <HistoryHint stored={stored} symbol={symbol} timeframe={timeframe} />}
         <div className="field">
           <span>Strategy inputs</span>
           <Segmented label="Strategy inputs" value={source} onChange={setSource} options={sourceOptions} />
@@ -339,11 +451,30 @@ export default function BacktestPage() {
             Strikes, expirations and dollar risk follow {symbol} {timeframe}’s “What to trade on a signal” in <Link to="/master">Master Chart</Link> (or its defaults).
           </span>
         </div>
+        {optionsMode !== 'off' && (
+          <div className="field">
+            <span>Option prices</span>
+            <Segmented label="Option prices" value={optionPrices} onChange={setOptionPrices}
+              options={[{ value: 'estimate', label: 'Estimate (free)' }, { value: 'real', label: 'Real (Databento)' }]} />
+            <span className="hint">
+              {optionPrices === 'real'
+                ? <>Real prices from your Databento account, from 28 March 2023 on. What is not stored yet is priced by Databento first and downloaded only after you say yes.
+                  {stored && !stored.databento_key && <> Add your Databento key in <Link to="/config">Config → Keys</Link> first.</>}
+                  {stored && stored.options.spent_usd > 0 && <> Spent on downloads so far: {formatMoney(stored.options.spent_usd)}.</>}</>
+                : 'A standard pricing model from the stock’s own volatility. Free and instant, but real prices can differ a lot.'}
+            </span>
+          </div>
+        )}
         <div className="actions">
           <button className="btn btn-primary" disabled={running}>{running ? 'Running…' : 'Run backtest'}</button>
+          {running && <span className="muted">Years of 30-minute candles can take a minute or two.</span>}
         </div>
         {error && <p className="msg msg-error">{error}</p>}
       </form>
+
+      {job && (
+        <JobPanel job={job} onChange={setJob} onDone={() => { loadStored(); if (lastBody) void send(lastBody) }} />
+      )}
 
       {shown?.result && <Result key={shown.id} run={shown} tz={tz} />}
 

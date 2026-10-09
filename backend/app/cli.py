@@ -9,6 +9,7 @@ and chooses their own password.
 """
 import argparse
 import sys
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 
@@ -73,8 +74,35 @@ def cmd_users(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_import_candles(args: argparse.Namespace) -> int:
+    """Builds regular-session candles from 1-minute Parquet files and stores them for one user."""
+    from app import history
+
+    with get_sessionmaker()() as db:
+        user = db.scalar(select(User).where(User.email == normalize_email(args.email)))
+        if user is None:
+            print("No account with that email.", file=sys.stderr)
+            return 1
+        minutes = []
+        for path in args.files:
+            got = history.read_parquet_minutes(path)
+            print(f"{path}: {len(got):,} minutes")
+            minutes += got
+        splits = history.SPLITS.get(args.symbol, [])
+        for tf in args.timeframes.split(","):
+            bars = history.build(minutes, tf, splits)
+            n = history.store(db, user.id, args.symbol, tf, bars, args.source)
+            db.commit()
+            first = datetime.fromtimestamp(bars[0].time, timezone.utc).date() if bars else None
+            last = datetime.fromtimestamp(bars[-1].time, timezone.utc).date() if bars else None
+            print(f"{args.symbol} {tf}: {n:,} candles stored, {first} to {last}")
+        if splits:
+            print("Adjusted for splits: " + ", ".join(f"{r:g}-for-1 on {d}" for d, r in splits))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="manage.sh", description="AR Portfolio Bot account commands")
+    parser = argparse.ArgumentParser(prog="manage.sh", description="AR Portfolio Bot server commands")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("invite", help="print a one-time sign-up link")
@@ -94,6 +122,14 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("users", help="list accounts")
     p.set_defaults(func=cmd_users)
+
+    p = sub.add_parser("import-candles", help="store regular-session candles built from 1-minute Parquet files")
+    p.add_argument("email", help="the account the data belongs to (its data licence)")
+    p.add_argument("--symbol", required=True)
+    p.add_argument("--timeframes", default="30m,1h", help="comma-separated, from 5m, 15m, 30m, 1h")
+    p.add_argument("--source", default="Databento XNAS.ITCH 1-minute")
+    p.add_argument("files", nargs="+")
+    p.set_defaults(func=cmd_import_candles)
 
     args = parser.parse_args(argv)
     return args.func(args)

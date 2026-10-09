@@ -13,6 +13,7 @@ from sqlalchemy import (
     CheckConstraint,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     LargeBinary,
@@ -23,7 +24,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import INET, JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, INET, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -621,3 +622,101 @@ class BacktestRun(Base):
     summary: Mapped[dict] = mapped_column(JSONB)
     result: Mapped[dict] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# ---------- history data for backtests ----------
+
+
+class CandleHistory(Base):
+    """Candles a user imported or downloaded (under their own data licence), older than what the live
+    provider keeps. Strategy runs for Master Chart and Backtest put them in front of the live candles."""
+
+    __tablename__ = "candle_history"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(16), primary_key=True)
+    timeframe: Mapped[str] = mapped_column(String(4), primary_key=True)
+    time: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    open: Mapped[float] = mapped_column(Float)
+    high: Mapped[float] = mapped_column(Float)
+    low: Mapped[float] = mapped_column(Float)
+    close: Mapped[float] = mapped_column(Float)
+    volume: Mapped[float] = mapped_column(Float)
+    source: Mapped[str] = mapped_column(String(40))
+
+
+class OptionChainDay(Base):
+    """A day whose listed option chain is stored."""
+
+    __tablename__ = "option_chain_days"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    underlying: Mapped[str] = mapped_column(String(16), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    source: Mapped[str] = mapped_column(String(40))
+
+
+class OptionChain(Base):
+    """The strikes listed for one expiration on one day."""
+
+    __tablename__ = "option_chains"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    underlying: Mapped[str] = mapped_column(String(16), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    expiration: Mapped[date] = mapped_column(Date, primary_key=True)
+    call_strikes: Mapped[list[Decimal]] = mapped_column(ARRAY(Numeric(12, 3)))
+    put_strikes: Mapped[list[Decimal]] = mapped_column(ARRAY(Numeric(12, 3)))
+
+
+class OptionQuote(Base):
+    """A minute sample of one contract's best bid and ask (OPRA, all exchanges)."""
+
+    __tablename__ = "option_quotes"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    contract: Mapped[str] = mapped_column(String(32), primary_key=True)
+    time: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    bid: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
+    ask: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
+
+
+class OptionQuoteWindow(Base):
+    """A stretch of time already fetched for a contract: inside it, no sample means no quote."""
+
+    __tablename__ = "option_quote_windows"
+    __table_args__ = (Index("option_quote_windows_lookup", "user_id", "contract", "start"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    contract: Mapped[str] = mapped_column(String(32))
+    start: Mapped[int] = mapped_column(BigInteger)
+    end: Mapped[int] = mapped_column(BigInteger)
+    source: Mapped[str] = mapped_column(String(40))
+
+
+DATA_JOB_STATUSES = ("estimating", "confirm", "queued", "running", "done", "failed", "cancelled")
+
+
+class DataJob(Base):
+    """A download of real option prices for a backtest: the worker estimates its cost, the user
+    confirms, then the worker downloads (plan: never spend without the user's yes)."""
+
+    __tablename__ = "data_jobs"
+    __table_args__ = (
+        CheckConstraint("status IN ('estimating', 'confirm', 'queued', 'running', 'done', 'failed', 'cancelled')",
+                        name="data_jobs_status_check"),
+        Index("data_jobs_user_created", "user_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    status: Mapped[str] = mapped_column(String(16))
+    request: Mapped[dict] = mapped_column(JSONB)
+    plan: Mapped[dict] = mapped_column(JSONB, server_default="{}", default=dict)
+    estimate_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
+    spent_usd: Mapped[Decimal] = mapped_column(Numeric(12, 4), server_default="0", default=Decimal(0))
+    progress: Mapped[dict] = mapped_column(JSONB, server_default="{}", default=dict)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

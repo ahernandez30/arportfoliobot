@@ -7,7 +7,9 @@ counted. Results come three ways:
 - the stock-price result in dollars: a fixed dollar amount per trade (Rafa's choice, no compounding),
 - option trades per structure, priced by an OptionHistory (an estimate until real data is added).
 """
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from datetime import date, datetime, timedelta, timezone
 
 from app import auto_plan
@@ -26,6 +28,13 @@ class Setup:
     structures: tuple[str, ...]  # option structures to replay, may be empty
     trade: auto_plan.TradeSettings
     fill_rule: str
+
+
+def estimate_check(symbol: str) -> dict | None:
+    """How far the estimate was from real prices for this symbol, if it has been checked
+    (app.backtest.estimate_check, saved next to this file)."""
+    path = Path(__file__).with_name(f"estimate_check_{symbol}.json")
+    return json.loads(path.read_text()) if path.exists() else None
 
 
 def day_start(d: date) -> int:
@@ -93,5 +102,6 @@ def run(strategy: Strategy, data: StrategyData, inputs: dict, setup: Setup, hist
         "notes": {
             "options_source": history.source if history is not None and setup.structures else None,
             "rate_pct": RATE * 100, "vol_days": VOL_DAYS, "fill_rule": setup.fill_rule,
+            "estimate_check": estimate_check(data.symbol) if history is not None and history.source == "estimate" else None,
         },
     }

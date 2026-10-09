@@ -1,48 +1,23 @@
 """Backtest tab (Stage 7): run the strategy over history, keep the runs, reopen them.
 Only the signed-in user's own runs and key."""
 import asyncio
-from datetime import date
-from typing import Any, Literal
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import Field
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import auto_plan, routes_market, user_settings
+from app import data_jobs, history, keys
 from app.auth import current_user
-from app.backtest import run as bt
-from app.backtest.option_history import ModelOptionHistory
+from app.backtest.prepare import RunError, RunIn, plan_missing, prepare, run_prepared
 from app.db import get_db
-from app.inputs import Strict
-from app.marketdata import service as md_service
-from app.marketdata.base import MarketDataError
-from app.models import BacktestRun, StrategyPreset, User
-from app.routes_auto import _trade_settings
-from app.routes_market import _provider, _symbol
-from app.routes_strategy import _inputs, _strategy, _timeframe
-from app.strategy import service
+from app.models import BacktestRun, DataJob, User
+from app.routes_market import _symbol
+from app.routes_strategy import _strategy, _timeframe
 
 router = APIRouter(prefix="/api/backtest")
 
 KEEP_RUNS = 30
-
-
-class RunIn(Strict):
-    strategy: str = Field(max_length=40)
-    symbol: str = Field(max_length=12)
-    timeframe: str = Field(max_length=4)
-    # pegged: the set pegged to this symbol and timeframe; given: `inputs` (e.g. sent from Master Chart).
-    inputs_source: Literal["pegged", "given", "defaults"] = "pegged"
-    inputs: dict[str, Any] = Field(default_factory=dict)
-    start: date | None = None
-    end: date | None = None
-    starting_cash: float = Field(100_000.0, gt=0, le=1_000_000_000)
-    stock_dollars: float = Field(10_000.0, gt=0, le=1_000_000_000)
-    # off: stock price only; plan: the structure(s) in “What to trade on a signal”; compare: all three.
-    options: Literal["off", "plan", "compare"] = "compare"
-    # “What to trade on a signal” to use; empty: the one saved for this symbol and timeframe.
-    trade: dict[str, Any] | None = None
 
 
 def _summary(result: dict) -> dict:
@@ -59,45 +34,36 @@ def _out(r: BacktestRun, full: bool) -> dict:
 
 
 @router.post("/run")
-async def run(body: RunIn, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
-    s = _strategy(body.strategy)
-    symbol, tf = _symbol(body.symbol), _timeframe(body.timeframe)
-    if body.start and body.end and body.start > body.end:
-        raise HTTPException(422, "The start date is after the end date.")
-    preset = db.scalar(select(StrategyPreset).where(StrategyPreset.user_id == user.id, StrategyPreset.strategy == s.id,
-                                                    StrategyPreset.symbol == symbol, StrategyPreset.timeframe == tf))
-    if body.inputs_source == "pegged":
-        if preset is None:
-            raise HTTPException(409, f"Nothing is pegged to {symbol} {tf}. Peg settings in Master Chart, or use other inputs.")
-        inputs = _inputs(s, preset.inputs)
-    elif body.inputs_source == "given":
-        inputs = _inputs(s, body.inputs)
-    else:
-        inputs = s.defaults()
-    trade = _trade_settings(body.trade) if body.trade is not None else auto_plan.load_settings(preset.trade if preset else None)
-    structures = {"off": (), "plan": trade.structures(), "compare": auto_plan.STRUCTURES}[body.options]
-    rule = user_settings.load(db, user.id).paper.fill_rule
-    md = _provider(db, user)
+async def run(body: RunIn, response: Response, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    """Runs and saves a backtest. With real option prices, if some are not downloaded yet, nothing is
+    saved: a download job is started instead (202), and the screen asks before anything is spent."""
+    body = body.model_copy(update={"symbol": _symbol(body.symbol), "timeframe": _timeframe(body.timeframe)})
+    _strategy(body.strategy)
     try:
-        data = await service.load(routes_market.cache, user.id, md, s, symbol, tf, inputs)
-        daily_bars = data.bars if tf == "1D" else await md_service.candles(
-            routes_market.cache, user.id, md, symbol, "1D", service.HISTORY_START["1D"])
-    except MarketDataError as exc:
+        p = await prepare(db, user, body)
+    except RunError as exc:
         raise HTTPException(exc.status, str(exc))
-    if not data.bars:
-        raise HTTPException(404, f"No {tf} candles for {symbol}.")
-    daily = bt.daily_closes(daily_bars)
-    setup = bt.Setup(body.start, body.end, body.starting_cash, body.stock_dollars, tuple(structures), trade, rule)
-    history = ModelOptionHistory({symbol: daily}) if structures else None
-    result = await asyncio.to_thread(bt.run, s, data, inputs, setup, history, daily)
+    real = body.option_prices == "real" and bool(p.structures)
+    if real:
+        if not keys.get_secret(db, user.id, "databento"):
+            raise HTTPException(409, "Real option prices come from Databento: add your Databento key in Config → Keys first.")
+        missing, positions = await asyncio.to_thread(plan_missing, db, user.id, p)
+        if not missing.empty():
+            job = DataJob(user_id=user.id, status="estimating",
+                          request={"run": body.model_dump(mode="json"), "missing": missing.as_dict(), "positions": positions})
+            db.add(job)
+            db.commit()
+            response.status_code = 202
+            return {"job": data_jobs.job_out(job)}
+    result = await run_prepared(db, user.id, p, "real" if real else "estimate")
     if not result["range"]["first"]:
         raise HTTPException(422, "No closed candles in that date range.")
-    saved_setup = {"strategy": s.id, "symbol": symbol, "timeframe": tf, "inputs_source": body.inputs_source,
-                   "inputs": inputs, "start": body.start.isoformat() if body.start else None,
+    saved_setup = {"strategy": p.strategy.id, "symbol": p.symbol, "timeframe": p.timeframe, "inputs_source": body.inputs_source,
+                   "inputs": p.inputs, "start": body.start.isoformat() if body.start else None,
                    "end": body.end.isoformat() if body.end else None, "starting_cash": body.starting_cash,
-                   "stock_dollars": body.stock_dollars, "options": body.options, "structures": list(structures),
-                   "trade": trade.model_dump(), "fill_rule": rule}
-    row = BacktestRun(user_id=user.id, strategy=s.id, symbol=symbol, timeframe=tf, setup=saved_setup,
+                   "stock_dollars": body.stock_dollars, "options": body.options, "structures": list(p.structures),
+                   "trade": p.trade.model_dump(), "fill_rule": p.rule, "option_prices": "real" if real else "estimate"}
+    row = BacktestRun(user_id=user.id, strategy=p.strategy.id, symbol=p.symbol, timeframe=p.timeframe, setup=saved_setup,
                       summary=_summary(result), result=result)
     db.add(row)
     db.flush()
@@ -107,6 +73,51 @@ async def run(body: RunIn, user: User = Depends(current_user), db: Session = Dep
         db.delete(r)
     db.commit()
     return _out(row, True)
+
+
+# ---------- downloads of real option prices, and what is stored ----------
+
+
+def _own_job(db: Session, user: User, job_id: int) -> DataJob:
+    j = db.get(DataJob, job_id)
+    if j is None or j.user_id != user.id:
+        raise HTTPException(404, "That download was not found.")
+    return j
+
+
+@router.get("/data-jobs/{job_id}")
+def get_job(job_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    return data_jobs.job_out(_own_job(db, user, job_id))
+
+
+@router.post("/data-jobs/{job_id}/confirm")
+def confirm_job(job_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    """The user's yes to the estimated cost: the worker may now spend up to the job's limit."""
+    j = _own_job(db, user, job_id)
+    if j.status != "confirm":
+        raise HTTPException(409, "This download is not waiting for a yes.")
+    j.status = "queued"
+    j.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return data_jobs.job_out(j)
+
+
+@router.post("/data-jobs/{job_id}/cancel")
+def cancel_job(job_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    j = _own_job(db, user, job_id)
+    if j.status in ("done", "failed", "cancelled"):
+        raise HTTPException(409, "This download has already finished.")
+    j.status = "cancelled"
+    j.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return data_jobs.job_out(j)
+
+
+@router.get("/history")
+def stored_history(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    """Candles and real option prices stored for this user."""
+    return {"candles": history.coverage(db, user.id), "options": data_jobs.option_coverage(db, user.id),
+            "databento_key": bool(keys.get_secret(db, user.id, "databento"))}
 
 
 @router.get("/runs")

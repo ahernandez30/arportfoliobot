@@ -67,7 +67,7 @@ async def run(body: RunIn, user: User = Depends(current_user), db: Session = Dep
     inputs = _inputs(s, body.inputs)
     md = _provider(db, user)
     try:
-        data = await service.load(routes_market.cache, user.id, md, s, symbol, tf, inputs)
+        data = await service.load(routes_market.cache, user.id, md, s, symbol, tf, inputs, db=db)
     except MarketDataError as exc:
         raise HTTPException(exc.status, str(exc))
     if not data.bars:

@@ -1,0 +1,100 @@
+{
+ "symbol": "TSLA",
+ "checked": "2026-10-09",
+ "period": "April 2023 to October 2026",
+ "source": "Databento OPRA best bid/ask at half-hour marks, contracts from 0 to over 180 days, mostly 30-210 days",
+ "overall": {
+  "n": 2386310,
+  "typical_miss_pct": 17.3,
+  "bias_pct": -6.4,
+  "middle_80_pct": [
+   -44,
+   39
+  ],
+  "real_spread_pct": 0.88
+ },
+ "by_days_to_expiration": {
+  "0-7 days": {
+   "n": 61054,
+   "typical_miss_pct": 24.5,
+   "bias_pct": -15.0,
+   "middle_80_pct": [
+    -93,
+    3
+   ],
+   "real_spread_pct": 1.9
+  },
+  "8-30 days": {
+   "n": 433122,
+   "typical_miss_pct": 21.7,
+   "bias_pct": -8.8,
+   "middle_80_pct": [
+    -77,
+    45
+   ],
+   "real_spread_pct": 1.44
+  },
+  "31-90 days": {
+   "n": 907671,
+   "typical_miss_pct": 16.3,
+   "bias_pct": -5.7,
+   "middle_80_pct": [
+    -41,
+    42
+   ],
+   "real_spread_pct": 0.86
+  },
+  "91-180 days": {
+   "n": 742850,
+   "typical_miss_pct": 16.5,
+   "bias_pct": -5.5,
+   "middle_80_pct": [
+    -33,
+    41
+   ],
+   "real_spread_pct": 0.72
+  },
+  "over 180 days": {
+   "n": 241613,
+   "typical_miss_pct": 17.5,
+   "bias_pct": -7.9,
+   "middle_80_pct": [
+    -33,
+    30
+   ],
+   "real_spread_pct": 0.7
+  }
+ },
+ "by_distance": {
+  "within 5% of the price": {
+   "n": 759621,
+   "typical_miss_pct": 14.7,
+   "bias_pct": -5.7,
+   "middle_80_pct": [
+    -26,
+    34
+   ],
+   "real_spread_pct": 0.68
+  },
+  "5-15% away": {
+   "n": 1093478,
+   "typical_miss_pct": 16.7,
+   "bias_pct": -6.0,
+   "middle_80_pct": [
+    -40,
+    39
+   ],
+   "real_spread_pct": 0.87
+  },
+  "over 15% away": {
+   "n": 533211,
+   "typical_miss_pct": 31.2,
+   "bias_pct": -9.4,
+   "middle_80_pct": [
+    -83,
+    64
+   ],
+   "real_spread_pct": 1.39
+  }
+ }
+}

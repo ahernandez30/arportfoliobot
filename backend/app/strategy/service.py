@@ -3,9 +3,12 @@ candle still in progress, and runs the one engine shared by Master Chart, the wo
 import asyncio
 from datetime import date, datetime, timedelta, timezone
 
+from sqlalchemy.orm import Session
+
+from app import history
 from app.marketdata import service as md_service
 from app.marketdata.bars import NY
-from app.marketdata.base import Bar, MarketData
+from app.marketdata.base import INTRADAY, Bar, MarketData
 from app.strategy.base import TIMEFRAME_SECONDS, Strategy, StrategyData
 
 # How far back daily and weekly candles go for strategies: long histories give more signals to
@@ -36,10 +39,15 @@ def closed_count(bars: list[Bar], tf: str, now: datetime | None = None) -> int:
 
 
 async def load(cache: md_service.TTLCache, user_id: int, md: MarketData, strategy: Strategy, symbol: str,
-               timeframe: str, inputs: dict, now: datetime | None = None) -> StrategyData:
+               timeframe: str, inputs: dict, now: datetime | None = None, db: Session | None = None) -> StrategyData:
+    """With `db`, the user's stored intraday history goes in front of the provider's candles
+    (Master Chart and Backtest; automatic trading runs on the provider's candles only)."""
     wanted = [timeframe, *sorted(strategy.needs(timeframe, inputs))]
     got = await asyncio.gather(*(md_service.candles(cache, user_id, md, symbol, tf, HISTORY_START.get(tf))
                                  for tf in wanted))
+    if db is not None:
+        got = [history.merge(history.stored(db, user_id, symbol, tf), bars) if tf in INTRADAY else bars
+               for tf, bars in zip(wanted, got)]
     bars = got[0]
     return StrategyData(symbol=symbol, timeframe=timeframe, bars=bars, closed=closed_count(bars, timeframe, now),
                         other=dict(zip(wanted[1:], got[1:])))
