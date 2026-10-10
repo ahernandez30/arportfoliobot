@@ -72,7 +72,7 @@ def run(strategy: Strategy, data: StrategyData, inputs: dict, setup: Setup, hist
              "counted": t["counted"], "days": t["days"], "entries": t.get("entries", 1),
              "stock_pnl": round(setup.stock_dollars * t.get("entries", 1) * t["ret_pct"] / 100.0, 2), "options": {}}
             for t in trades]
-    skipped = {}
+    skipped, over_risk = {}, {}
     if setup.option is not None and history is not None:
         prior = options.PriorHistory(out["trades"], data.timeframe)
         structure = setup.option.structure
@@ -80,6 +80,7 @@ def run(strategy: Strategy, data: StrategyData, inputs: dict, setup: Setup, hist
                                               data.symbol, data.timeframe, daily, setup.fill_rule, prior)
         columns[structure] = stats.money_results(outcomes, setup.starting_cash)
         skipped[structure] = sum(1 for r in opt_rows if "problem" in r)
+        over_risk[structure] = sum(1 for r in opt_rows if r.get("over_risk"))
         # Basket trades open one option position per entry; the table shows them under their trade.
         k = 0
         for row, t in zip(rows, trades):
@@ -94,6 +95,7 @@ def run(strategy: Strategy, data: StrategyData, inputs: dict, setup: Setup, hist
         "credit_spreads": out.get("credit_spreads"),
         "columns": columns,
         "skipped": skipped,
+        "over_risk": over_risk,
         "trades": rows,
         "range": {"first": first_bar, "last": bars[closed - 1].time if closed else None,
                   "history_from": bars[0].time if bars else None},

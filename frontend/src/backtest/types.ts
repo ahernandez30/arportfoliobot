@@ -57,6 +57,7 @@ export type OptionRow = {
   exit?: number
   pnl?: number
   max_loss?: number
+  over_risk?: boolean
   payout?: number | null
   /** Older runs: the strike distance from “What to trade on a signal”. */
   distance_pct?: number
@@ -95,6 +96,8 @@ export type BacktestResult = {
   credit_spreads: CreditSpreads | null
   columns: Partial<Record<ColumnKey, Money>>
   skipped: Partial<Record<ColumnKey, number>>
+  /** Positions of one contract that could lose more than the risk per trade (since 2026-10-10). */
+  over_risk?: Partial<Record<ColumnKey, number>>
   trades: TradeRow[]
   range: { first: number | null; last: number | null; history_from: number | null }
   notes: {

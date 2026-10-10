@@ -7,7 +7,8 @@
   further out of the money.
 - Expiration: the first at least a fixed number of days away, or (auto) the average trade length
   plus a margin, from only the trades that had already closed when the signal fired.
-- Size: as many as the dollar risk allows (the most the position can lose); fees per contract.
+- Size: as many as the dollar risk allows (the most the position can lose), but at least one so
+  every signal is traded (Rafa, 2026-10-10); fees per contract.
 - Prices: the candles are split-adjusted, but contracts were listed on the price of the day, so
   each position is priced on the stock's price in that day's terms (strikes, width and size real).
 - Exits follow the strategy on the stock chart; a position the strategy left floating, or one
@@ -245,7 +246,7 @@ def simulate(setup: OptionSetup, trades: list[dict], entries: list[dict], histor
                 row["problem"] = placed
                 continue
             choice = placed.choice
-            sizing = auto_plan.size(choice, rule, risk, "the backtest’s risk per trade")
+            sizing = auto_plan.size(choice, rule, risk, at_least_one=True)
             if isinstance(sizing, str):
                 row["problem"] = sizing
                 continue
@@ -284,7 +285,7 @@ def simulate(setup: OptionSetup, trades: list[dict], entries: list[dict], histor
             row.update({
                 "description": auto_plan.describe(choice, exp, symbol), "quantity": q, "entry": float(sizing.price),
                 "exit": float(exit_price), "pnl": round(float(pnl), 2), "fees": round(float(2 * fees), 2),
-                "max_loss": float(sizing.unit_risk * q), "payout": sizing.payout,
+                "max_loss": float(sizing.unit_risk * q), "over_risk": sizing.unit_risk * q > risk, "payout": sizing.payout,
                 "strike_pct": round((float(placed_strike) / price - 1) * 100 * (1 if choice.option_type == "call" else -1), 2),
                 "delta": round(placed.delta, 3) if placed.delta is not None else None,
                 "width": float(choice.width) if choice.sold else None, "hold_days": rules.hold_days,

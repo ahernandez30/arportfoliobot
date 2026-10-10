@@ -125,6 +125,12 @@ function Summary({ run }: { run: BacktestRun }) {
               {cols.map((k) => <td key={k} className="num right muted">{k === 'stock' ? '' : r.skipped[k] ?? 0}</td>)}
             </tr>
           )}
+          {cols.some((k) => r.over_risk?.[k]) && (
+            <tr>
+              <td title="One contract or spread could lose more than the risk per trade; one was traded anyway so every signal counts.">Positions over your risk (1 traded)</td>
+              {cols.map((k) => <td key={k} className="num right muted">{k === 'stock' ? '' : r.over_risk?.[k] ?? 0}</td>)}
+            </tr>
+          )}
         </tbody>
       </table>
     </div>
@@ -265,7 +271,7 @@ function Trades({ run, tz }: { run: BacktestRun; tz: string }) {
                             <>
                               <span className="sym">{o.description}</span> ×{o.quantity}, {k === 'credit_spread' ? 'credit' : 'paid'} <span className="num">{formatPrice(o.entry)}</span>,
                               closed at <span className="num">{formatPrice(o.exit)}</span> → <span className={`num ${changeClass(o.pnl ?? null)}`}>{formatMoney(o.pnl, true)}</span>
-                              <span className="muted"> · could lose {formatMoney(o.max_loss)}{o.payout != null && ` · payout ${o.payout.toFixed(2)}:1`} · {strikeWords(o)}{o.width != null && ` · $${o.width} wide`} · ≥{o.hold_days} days{o.fees ? ` · fees ${formatMoney(o.fees)}` : ''}{o.note && ` · ${o.note}`}{o.split_factor && ` · before a split: priced on that day’s stock price (chart price ×${o.split_factor})`}</span>
+                              <span className="muted"> · could lose {formatMoney(o.max_loss)}{o.over_risk && ' (over your risk; 1 traded anyway)'}{o.payout != null && ` · payout ${o.payout.toFixed(2)}:1`} · {strikeWords(o)}{o.width != null && ` · $${o.width} wide`} · ≥{o.hold_days} days{o.fees ? ` · fees ${formatMoney(o.fees)}` : ''}{o.note && ` · ${o.note}`}{o.split_factor && ` · before a split: priced on that day’s stock price (chart price ×${o.split_factor})`}</span>
                             </>
                           )}
                         </p>
@@ -629,7 +635,7 @@ export default function BacktestPage() {
                 {' '}Positions still open the day before expiration are closed that day.
               </span>
             </div>
-            <Field label="Risk per trade ($)" hint="The most each position can lose: what was paid, or a credit spread’s width less its credit. Buys as many as fit.">
+            <Field label="Risk per trade ($)" hint="The most each position can lose: what was paid, or a credit spread’s width less its credit. Buys as many as fit, and at least one, so every signal is traded.">
               <input className="input num" inputMode="decimal" value={form.risk_usd} onChange={(e) => setForm({ ...form, risk_usd: e.target.value })} />
             </Field>
             <Field label="Fee per contract ($)" hint="Charged on each contract bought or sold, opening and closing. 0 for none.">

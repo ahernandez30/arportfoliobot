@@ -222,6 +222,14 @@ def test_positions_before_a_split_are_priced_in_that_days_terms(monkeypatch):
     assert before and after
 
 
+def test_every_signal_trades_at_least_one_contract():
+    r = replay(options.OptionSetup(structure="directional", strike_pct=0, risk_usd=1))
+    rows = priced(r, "directional")
+    assert rows and all(o["quantity"] == 1 and o["over_risk"] for o in rows)
+    assert r["over_risk"]["directional"] == len(rows) == r["columns"]["directional"]["trades"]
+    assert not any("risk per trade" in o.get("problem", "") for t in r["trades"] for o in t["options"]["directional"])
+
+
 def test_implied_vol_and_delta_round_trip():
     from app.backtest.option_history import delta, implied_vol, strike_for_delta
     p = black_scholes("put", 100, 95, 0.1, 0.45)
