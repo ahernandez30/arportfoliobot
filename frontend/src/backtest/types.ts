@@ -24,6 +24,29 @@ export type Money = {
   curve: { time: number; value: number }[]
 }
 
+/** What a backtest trades on each signal (backend app/backtest/options.OptionSetup). */
+export type Structure = 'directional' | 'debit_spread' | 'credit_spread'
+export type OptionSetup = {
+  structure: Structure
+  strike_by: 'pct' | 'delta'
+  /** Percent from the stock price, out of the money (negative: in the money). */
+  strike_pct: number
+  strike_delta: number
+  width_usd: number
+  expiry_mode: 'auto' | 'fixed'
+  margin_pct: number
+  expiry_days: number
+  risk_usd: number
+  /** Dollars per contract each time one is bought or sold. */
+  commission: number
+}
+
+/** One leg's order in a transaction. */
+export type LegFill = { action: string; contract: string; quantity: number; price: number; bid: number | null; ask: number | null }
+
+/** Opening or closing one option position. `net` per share; `cash` in or out of the account, after fees. */
+export type Transaction = { time: number; underlying: number; legs: LegFill[]; net: number; fees: number; cash: number }
+
 export type OptionRow = {
   entry_time: number
   dir: 1 | -1
@@ -35,7 +58,15 @@ export type OptionRow = {
   pnl?: number
   max_loss?: number
   payout?: number | null
+  /** Older runs: the strike distance from “What to trade on a signal”. */
   distance_pct?: number
+  strike_pct?: number
+  delta?: number | null
+  width?: number | null
+  fees?: number
+  /** Before a split: what the split-adjusted chart price was multiplied by to price the contract. */
+  split_factor?: number | null
+  transactions?: Transaction[]
   hold_days?: number
   expiration?: string
   exit_time?: number
@@ -86,9 +117,12 @@ export type BacktestSetup = {
   end: string | null
   starting_cash: number
   stock_dollars: number
-  options: 'off' | 'plan' | 'compare'
-  structures: string[]
-  trade: TradeSettings
+  /** The option setup (since 2026-10-10); none: stock price only. */
+  option?: OptionSetup | null
+  /** Older runs compared structures with “What to trade on a signal”. */
+  options?: 'off' | 'plan' | 'compare'
+  structures?: string[]
+  trade?: TradeSettings
   fill_rule: 'bid_ask' | 'mid'
   /** Older runs (before real prices) have none: the estimate. */
   option_prices?: 'estimate' | 'real'

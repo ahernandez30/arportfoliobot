@@ -43,7 +43,7 @@ async def run(body: RunIn, response: Response, user: User = Depends(current_user
         p = await prepare(db, user, body)
     except RunError as exc:
         raise HTTPException(exc.status, str(exc))
-    real = body.option_prices == "real" and bool(p.structures)
+    real = body.option_prices == "real" and p.option is not None
     if real:
         if not keys.get_secret(db, user.id, "databento"):
             raise HTTPException(409, "Real option prices come from Databento: add your Databento key in Config → Keys first.")
@@ -61,8 +61,8 @@ async def run(body: RunIn, response: Response, user: User = Depends(current_user
     saved_setup = {"strategy": p.strategy.id, "symbol": p.symbol, "timeframe": p.timeframe, "inputs_source": body.inputs_source,
                    "inputs": p.inputs, "start": body.start.isoformat() if body.start else None,
                    "end": body.end.isoformat() if body.end else None, "starting_cash": body.starting_cash,
-                   "stock_dollars": body.stock_dollars, "options": body.options, "structures": list(p.structures),
-                   "trade": p.trade.model_dump(), "fill_rule": p.rule, "option_prices": "real" if real else "estimate"}
+                   "stock_dollars": body.stock_dollars,
+                   "option": p.option.model_dump() if p.option else None, "fill_rule": p.rule, "option_prices": "real" if real else "estimate"}
     row = BacktestRun(user_id=user.id, strategy=p.strategy.id, symbol=p.symbol, timeframe=p.timeframe, setup=saved_setup,
                       summary=_summary(result), result=result)
     db.add(row)

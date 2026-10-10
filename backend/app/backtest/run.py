@@ -5,14 +5,13 @@ every other filter see exactly what TradingView sees; only trades opened inside 
 counted. Results come three ways:
 - the script's own results tables and luck test (percent moves of the stock),
 - the stock-price result in dollars: a fixed dollar amount per trade (Rafa's choice, no compounding),
-- option trades per structure, priced by an OptionHistory (an estimate until real data is added).
+- option trades of the chosen setup, priced by an OptionHistory (the estimate, or real prices).
 """
 import json
 from dataclasses import dataclass
 from pathlib import Path
 from datetime import date, datetime, timedelta, timezone
 
-from app import auto_plan
 from app.backtest import options, stats
 from app.backtest.option_history import RATE, VOL_DAYS, OptionHistory
 from app.marketdata.base import Bar, DailyClose
@@ -25,8 +24,7 @@ class Setup:
     end: date | None
     starting_cash: float
     stock_dollars: float  # dollars put into each trade for the stock-price result
-    structures: tuple[str, ...]  # option structures to replay, may be empty
-    trade: auto_plan.TradeSettings
+    option: options.OptionSetup | None  # the option setup to replay; None: stock price only
     fill_rule: str
 
 
@@ -75,19 +73,19 @@ def run(strategy: Strategy, data: StrategyData, inputs: dict, setup: Setup, hist
              "stock_pnl": round(setup.stock_dollars * t.get("entries", 1) * t["ret_pct"] / 100.0, 2), "options": {}}
             for t in trades]
     skipped = {}
-    if setup.structures and history is not None:
+    if setup.option is not None and history is not None:
         prior = options.PriorHistory(out["trades"], data.timeframe)
-        for structure in setup.structures:
-            outcomes, opt_rows = options.simulate(structure, setup.trade, trades, out.get("entries", []), history,
-                                                  data.symbol, data.timeframe, daily, setup.fill_rule, prior)
-            columns[structure] = stats.money_results(outcomes, setup.starting_cash)
-            skipped[structure] = sum(1 for r in opt_rows if "problem" in r)
-            # Basket trades open one option position per entry; the table shows them under their trade.
-            k = 0
-            for row, t in zip(rows, trades):
-                n = len(options.legs_of(t, out.get("entries", [])))
-                row["options"][structure] = opt_rows[k:k + n]
-                k += n
+        structure = setup.option.structure
+        outcomes, opt_rows = options.simulate(setup.option, trades, out.get("entries", []), history,
+                                              data.symbol, data.timeframe, daily, setup.fill_rule, prior)
+        columns[structure] = stats.money_results(outcomes, setup.starting_cash)
+        skipped[structure] = sum(1 for r in opt_rows if "problem" in r)
+        # Basket trades open one option position per entry; the table shows them under their trade.
+        k = 0
+        for row, t in zip(rows, trades):
+            n = len(options.legs_of(t, out.get("entries", [])))
+            row["options"][structure] = opt_rows[k:k + n]
+            k += n
 
     first_bar = next((b.time for b in bars[:closed] if start_ts is None or b.time >= start_ts), None)
     return {
@@ -100,7 +98,7 @@ def run(strategy: Strategy, data: StrategyData, inputs: dict, setup: Setup, hist
         "range": {"first": first_bar, "last": bars[closed - 1].time if closed else None,
                   "history_from": bars[0].time if bars else None},
         "notes": {
-            "options_source": history.source if history is not None and setup.structures else None,
+            "options_source": history.source if history is not None and setup.option is not None else None,
             "rate_pct": RATE * 100, "vol_days": VOL_DAYS, "fill_rule": setup.fill_rule,
             "estimate_check": estimate_check(data.symbol) if history is not None and history.source == "estimate" else None,
         },

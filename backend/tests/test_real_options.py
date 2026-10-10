@@ -114,7 +114,7 @@ def run_job(job_id):
 def test_download_job_end_to_end(md, rafa, db, monkeypatch):  # noqa: F811 (fixtures)
     monkeypatch.setattr(data_jobs, "make_client", FakeDatabento)
     FakeDatabento.calls = []
-    real = body(options="plan", option_prices="real", start="2023-06-01")
+    real = body(option={"structure": "credit_spread", "width_usd": 5}, option_prices="real", start="2023-06-01")
     r = rafa.post("/api/backtest/run", json=real)
     assert r.status_code == 409 and "Databento key" in r.json()["detail"]
     rafa.put("/api/me/keys/databento", json={"secret": "db-key-0000000000000000000000000"})
@@ -148,7 +148,7 @@ def test_download_job_end_to_end(md, rafa, db, monkeypatch):  # noqa: F811 (fixt
 def test_download_stops_at_the_limit_and_can_be_cancelled(md, rafa, db, monkeypatch):  # noqa: F811
     monkeypatch.setattr(data_jobs, "make_client", FakeDatabento)
     rafa.put("/api/me/keys/databento", json={"secret": "db-key-0000000000000000000000000"})
-    job = rafa.post("/api/backtest/run", json=body(options="plan", option_prices="real", start="2023-06-01")).json()["job"]
+    job = rafa.post("/api/backtest/run", json=body(option={"structure": "credit_spread", "width_usd": 5}, option_prices="real", start="2023-06-01")).json()["job"]
     run_job(job["id"])
     j = db.get(DataJob, job["id"])
     j.plan = {**j.plan, "limit_usd": 0.02}  # room for two requests only
@@ -159,7 +159,7 @@ def test_download_stops_at_the_limit_and_can_be_cancelled(md, rafa, db, monkeypa
     j = db.get(DataJob, job["id"])
     assert j.status == "failed" and "Stopped before passing" in j.error and float(j.spent_usd) <= 0.02
     # Cancelling: only while it has not finished, and only your own.
-    job2 = rafa.post("/api/backtest/run", json=body(options="plan", option_prices="real", start="2023-06-01")).json()["job"]
+    job2 = rafa.post("/api/backtest/run", json=body(option={"structure": "credit_spread", "width_usd": 5}, option_prices="real", start="2023-06-01")).json()["job"]
     make_user("other@example.com")
     from tests.conftest import signed_in
 

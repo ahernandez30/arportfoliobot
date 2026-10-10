@@ -12,14 +12,62 @@ import { formatMoney } from '../money'
 import '../capital/capital.css'
 import '../master/master.css'
 import EquityChart from './EquityChart'
-import { COLUMN_LABEL, COLUMN_ORDER, optionTotal, reasonWord } from './logic'
-import type { BacktestRun, ColumnKey, DataJob, Money, SentSetup, StoredHistory } from './types'
+import { COLUMN_LABEL, COLUMN_ORDER, DEFAULT_SETUP, logCsv, optionTotal, reasonWord, setupText, transactionLog } from './logic'
+import type { BacktestRun, ColumnKey, DataJob, Money, OptionRow, OptionSetup, SentSetup, StoredHistory, Structure } from './types'
 import './backtest.css'
 
 const QUICK = ['TSLA', 'QQQ', 'SPY']
 const STRATEGY = 'swing_v98'
 type InputsSource = 'pegged' | 'given' | 'defaults'
-type OptionsMode = 'off' | 'plan' | 'compare'
+type OptionTrade = 'off' | Structure
+const SETUP_KEY = 'arpb.backtest.option'
+
+/** The option form as typed (numbers as text). */
+type SetupForm = { [K in keyof OptionSetup]: OptionSetup[K] extends number ? string : OptionSetup[K] }
+
+function toForm(o: OptionSetup): SetupForm {
+  return { ...o, strike_pct: String(o.strike_pct), strike_delta: String(o.strike_delta), width_usd: String(o.width_usd), margin_pct: String(o.margin_pct),
+    expiry_days: String(o.expiry_days), risk_usd: String(o.risk_usd), commission: String(o.commission) }
+}
+
+/** The last option setup used, remembered in this browser. */
+function remembered(): { trade: OptionTrade; form: SetupForm } {
+  try {
+    const raw = window.localStorage.getItem(SETUP_KEY)
+    if (raw) {
+      const v = JSON.parse(raw) as { trade: OptionTrade; setup: OptionSetup }
+      return { trade: v.trade, form: toForm({ ...DEFAULT_SETUP, ...v.setup }) }
+    }
+  } catch { /* nothing remembered */ }
+  return { trade: 'directional', form: toForm(DEFAULT_SETUP) }
+}
+
+function remember(trade: OptionTrade, setup: OptionSetup) {
+  try { window.localStorage.setItem(SETUP_KEY, JSON.stringify({ trade, setup })) } catch { /* not kept */ }
+}
+
+/** The typed setup checked against the backend's limits, or what is wrong. */
+function parseSetup(f: SetupForm): OptionSetup | string {
+  const n = (t: string) => parseNumber(t)
+  const v = { strike_pct: n(f.strike_pct), strike_delta: n(f.strike_delta), width_usd: n(f.width_usd), margin_pct: n(f.margin_pct),
+    expiry_days: n(f.expiry_days), risk_usd: n(f.risk_usd), commission: n(f.commission) }
+  if (f.strike_by === 'pct' && (v.strike_pct == null || Math.abs(v.strike_pct) > 50)) return 'Strike: enter a percent from −50 to 50.'
+  if (f.strike_by === 'delta' && (v.strike_delta == null || v.strike_delta < 0.05 || v.strike_delta > 0.95)) return 'Strike: enter a delta from 0.05 to 0.95.'
+  if (f.structure !== 'directional' && (v.width_usd == null || v.width_usd <= 0 || v.width_usd > 1000)) return 'Width: enter dollars above zero.'
+  if (f.expiry_mode === 'fixed' && (v.expiry_days == null || !Number.isInteger(v.expiry_days) || v.expiry_days < 1 || v.expiry_days > 800)) return 'Expiration: enter whole days from 1 to 800.'
+  if (f.expiry_mode === 'auto' && (v.margin_pct == null || v.margin_pct < 0 || v.margin_pct > 500)) return 'Expiration margin: enter a percent from 0 to 500.'
+  if (v.risk_usd == null || v.risk_usd <= 0) return 'Risk per trade: enter dollars above zero.'
+  if (v.commission == null || v.commission < 0 || v.commission > 20) return 'Fee per contract: enter dollars from 0 to 20.'
+  // Fields the setup does not use keep their last value, or the default if that is not valid.
+  const d = DEFAULT_SETUP
+  return { structure: f.structure, strike_by: f.strike_by, expiry_mode: f.expiry_mode,
+    strike_pct: v.strike_pct != null && Math.abs(v.strike_pct) <= 50 ? v.strike_pct : d.strike_pct,
+    strike_delta: v.strike_delta != null && v.strike_delta >= 0.05 && v.strike_delta <= 0.95 ? v.strike_delta : d.strike_delta,
+    width_usd: v.width_usd != null && v.width_usd > 0 && v.width_usd <= 1000 ? v.width_usd : d.width_usd,
+    margin_pct: v.margin_pct != null && v.margin_pct >= 0 && v.margin_pct <= 500 ? v.margin_pct : d.margin_pct,
+    expiry_days: v.expiry_days != null && Number.isInteger(v.expiry_days) && v.expiry_days >= 1 && v.expiry_days <= 800 ? v.expiry_days : d.expiry_days,
+    risk_usd: v.risk_usd, commission: v.commission }
+}
 type OptionPrices = 'estimate' | 'real'
 
 function when(t: number | null | undefined, tf: Timeframe, tz: string): string {
@@ -112,6 +160,64 @@ function Years({ run }: { run: BacktestRun }) {
   )
 }
 
+function strikeWords(o: OptionRow): string {
+  if (o.strike_pct == null) return `strike ${o.distance_pct}% away`
+  const where = o.strike_pct === 0 ? 'at the money' : `${Math.abs(o.strike_pct)}% ${o.strike_pct > 0 ? 'out of' : 'in'} the money`
+  return `strike ${where}${o.delta != null ? `, delta ${o.delta.toFixed(2)}` : ''}`
+}
+
+function Transactions({ run, tz }: { run: BacktestRun; tz: string }) {
+  const r = run.result!
+  const key = COLUMN_ORDER.find((k) => k !== 'stock' && r.columns[k])
+  const rows = key ? transactionLog(r.trades, key) : []
+  if (!key) return <p className="muted">This run has no option trades.</p>
+  if (!rows.length) return <p className="muted">{run.setup.option ? 'No option trades were made.' : 'Runs saved before 10 October 2026 have no transaction log. Run it again to get one.'}</p>
+  const at = (t: number) => formatDateTime(new Date(t * 1000).toISOString(), tz)
+  function download() {
+    const blob = new Blob([logCsv(rows, at)], { type: 'text/csv' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `backtest-${run.symbol}-${run.timeframe}-${run.id}-transactions.csv`
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+  return (
+    <>
+      <div className="actions">
+        <button type="button" className="btn btn-small" onClick={download}>Download CSV</button>
+        <span className="muted">{rows.length.toLocaleString()} fills. Each position’s net price, fees and cash are on its first line. Prices per share; one contract is 100 shares. Before a split, stock prices are that day’s real price, not the split-adjusted chart price.</span>
+      </div>
+      <div className="table-wrap">
+        <table className="table">
+          <thead>
+            <tr>
+              <th className="right">#</th><th>Time</th><th>Action</th><th>Contract</th><th className="right">Qty</th><th className="right">Fill</th>
+              <th className="right">Bid / ask</th><th className="right">Stock</th><th className="right">Net</th><th className="right">Fees</th><th className="right">Cash</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((x, i) => (
+              <tr key={i} className={x.first ? '' : 'leg-row'}>
+                <td className="num right muted">{x.first ? x.position : ''}</td>
+                <td>{x.first ? at(x.time) : ''}</td>
+                <td>{x.action}</td>
+                <td className="sym">{x.contract}</td>
+                <td className="num right">{x.quantity}</td>
+                <td className="num right">{formatPrice(x.price)}</td>
+                <td className="num right muted">{formatPrice(x.bid)} / {formatPrice(x.ask)}</td>
+                <td className="num right">{x.first ? formatPrice(x.underlying) : ''}</td>
+                <td className="num right">{x.first ? formatPrice(x.net) : ''}</td>
+                <td className="num right">{x.first ? formatMoney(x.fees) : ''}</td>
+                <td className={`num right ${x.first ? changeClass(x.cash) : ''}`}>{x.first ? formatMoney(x.cash, true) : ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  )
+}
+
 function Trades({ run, tz }: { run: BacktestRun; tz: string }) {
   const r = run.result!
   const tf = run.timeframe
@@ -159,7 +265,7 @@ function Trades({ run, tz }: { run: BacktestRun; tz: string }) {
                             <>
                               <span className="sym">{o.description}</span> ×{o.quantity}, {k === 'credit_spread' ? 'credit' : 'paid'} <span className="num">{formatPrice(o.entry)}</span>,
                               closed at <span className="num">{formatPrice(o.exit)}</span> → <span className={`num ${changeClass(o.pnl ?? null)}`}>{formatMoney(o.pnl, true)}</span>
-                              <span className="muted"> · could lose {formatMoney(o.max_loss)}{o.payout != null && ` · payout ${o.payout.toFixed(2)}:1`} · strike {o.distance_pct}% away · ≥{o.hold_days} days{o.note && ` · ${o.note}`}</span>
+                              <span className="muted"> · could lose {formatMoney(o.max_loss)}{o.payout != null && ` · payout ${o.payout.toFixed(2)}:1`} · {strikeWords(o)}{o.width != null && ` · $${o.width} wide`} · ≥{o.hold_days} days{o.fees ? ` · fees ${formatMoney(o.fees)}` : ''}{o.note && ` · ${o.note}`}{o.split_factor && ` · before a split: priced on that day’s stock price (chart price ×${o.split_factor})`}</span>
                             </>
                           )}
                         </p>
@@ -179,7 +285,7 @@ function Trades({ run, tz }: { run: BacktestRun; tz: string }) {
 function Result({ run, tz }: { run: BacktestRun; tz: string }) {
   const r = run.result!
   const s = run.setup
-  const [tab, setTab] = useState<'trades' | 'types' | 'years' | 'luck' | 'spreads'>('trades')
+  const [tab, setTab] = useState<'trades' | 'log' | 'types' | 'years' | 'luck' | 'spreads'>('trades')
   const optionsShown = r.notes.options_source != null
   return (
     <>
@@ -188,7 +294,8 @@ function Result({ run, tz }: { run: BacktestRun; tz: string }) {
         <p className="muted">
           {s.inputs_source === 'pegged' ? 'Pegged settings' : s.inputs_source === 'given' ? 'Settings sent from Master Chart' : 'Script defaults'} · {ruleText(s.inputs)} ·
           starting cash {formatMoney(s.starting_cash)} · stock: {formatMoney(s.stock_dollars)} per trade
-          {optionsShown && <> · options: risk {formatMoney(s.trade.risk_usd)} per trade, strike {s.trade.distance_mode === 'auto' ? 'at the average winning move so far' : `${s.trade.distance_pct}%`} {s.trade.side === 'toward' ? 'toward' : 'away from'} the signal</>}
+          {optionsShown && s.option && <> · options: {setupText(s.option)}</>}
+          {optionsShown && !s.option && s.trade && <> · options: risk {formatMoney(s.trade.risk_usd)} per trade, strike {s.trade.distance_mode === 'auto' ? 'at the average winning move so far' : `${s.trade.distance_pct}%`} {s.trade.side === 'toward' ? 'toward' : 'away from'} the signal</>}
         </p>
         <Summary run={run} />
         {optionsShown && s.option_prices === 'real' && (
@@ -215,11 +322,12 @@ function Result({ run, tz }: { run: BacktestRun; tz: string }) {
       </div>
       <div className="panel">
         <div className="segmented tabs" role="tablist">
-          {([['trades', 'Trades'], ['types', 'By candle type'], ['years', 'By year'], ['luck', 'Luck test'], ['spreads', 'Credit spreads']] as const).map(([k, l]) => (
+          {([['trades', 'Trades'], ['log', 'Transactions'], ['types', 'By candle type'], ['years', 'By year'], ['luck', 'Luck test'], ['spreads', 'Credit spreads']] as const).map(([k, l]) => (
             <button key={k} type="button" aria-pressed={tab === k} onClick={() => setTab(k)}>{l}</button>
           ))}
         </div>
         {tab === 'trades' && <Trades run={run} tz={tz} />}
+        {tab === 'log' && <Transactions run={run} tz={tz} />}
         {tab === 'types' && <ResultsPanel r={r.results} ruleText={ruleText(s.inputs)} />}
         {tab === 'years' && <Years run={run} />}
         {tab === 'luck' && (r.luck ? <LuckPanel luck={r.luck} /> : <p className="muted">No luck test for this run.</p>)}
@@ -321,7 +429,9 @@ export default function BacktestPage() {
   const [end, setEnd] = useState('')
   const [cash, setCash] = useState('100000')
   const [dollars, setDollars] = useState('10000')
-  const [optionsMode, setOptionsMode] = useState<OptionsMode>('compare')
+  const [first] = useState(remembered)
+  const [optionTrade, setOptionTrade] = useState<OptionTrade>(first.trade)
+  const [form, setForm] = useState<SetupForm>(first.form)
   const [optionPrices, setOptionPrices] = useState<OptionPrices>('estimate')
   const [job, setJob] = useState<DataJob | null>(null)
   const [lastBody, setLastBody] = useState<object | null>(null)
@@ -354,10 +464,20 @@ export default function BacktestPage() {
     const c = parseNumber(cash)
     const d = parseNumber(dollars)
     if (c == null || c <= 0 || d == null || d <= 0) return setError('Enter amounts above zero for starting cash and dollars per trade.')
+    let option: OptionSetup | null = null
+    if (optionTrade !== 'off') {
+      const o = parseSetup({ ...form, structure: optionTrade })
+      if (typeof o === 'string') return setError(o)
+      option = o
+      remember(optionTrade, o)
+    } else {
+      const o = parseSetup({ ...form, structure: 'directional' })
+      if (typeof o !== 'string') remember('off', o)
+    }
     const body = {
       strategy: sent?.strategy ?? STRATEGY, symbol: s, timeframe, inputs_source: source,
       inputs: source === 'given' && sent ? sent.inputs : {}, start: start || null, end: end || null,
-      starting_cash: c, stock_dollars: d, options: optionsMode, option_prices: optionsMode === 'off' ? 'estimate' : optionPrices,
+      starting_cash: c, stock_dollars: d, option, option_prices: option ? optionPrices : 'estimate',
     }
     await send(body)
   }
@@ -385,6 +505,26 @@ export default function BacktestPage() {
 
   async function open(id: number) {
     await action.run(async () => setShown(await api<BacktestRun>('GET', `/api/backtest/runs/${id}`)))
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  /** Puts a past run's setup back in the form, to run it again or change one thing. */
+  function reuse(r: BacktestRun) {
+    pickSymbol(r.symbol)
+    setTimeframe(r.timeframe)
+    // Settings sent from Master Chart can only be used again while they are here.
+    if (r.setup.inputs_source !== 'given' || sent) setSource(r.setup.inputs_source)
+    setStart(r.setup.start ?? '')
+    setEnd(r.setup.end ?? '')
+    setCash(String(r.setup.starting_cash))
+    setDollars(String(r.setup.stock_dollars))
+    if (r.setup.option) {
+      setOptionTrade(r.setup.option.structure)
+      setForm(toForm({ ...DEFAULT_SETUP, ...r.setup.option }))
+    } else if (r.setup.options === 'off' || r.setup.option === null) {
+      setOptionTrade('off')
+    }
+    setOptionPrices(r.setup.option_prices ?? 'estimate')
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -444,14 +584,60 @@ export default function BacktestPage() {
           </Field>
         </div>
         <div className="field">
-          <span>Option trades (estimated prices)</span>
-          <Segmented label="Option trades" value={optionsMode} onChange={setOptionsMode}
-            options={[{ value: 'compare', label: 'Compare all three' }, { value: 'plan', label: 'My structure only' }, { value: 'off', label: 'Stock price only' }]} />
+          <span>Option trade on each signal</span>
+          <Segmented label="Option trade" value={optionTrade} onChange={setOptionTrade}
+            options={[{ value: 'directional', label: 'Long call/put' }, { value: 'debit_spread', label: 'Debit spread' },
+              { value: 'credit_spread', label: 'Credit spread' }, { value: 'off', label: 'Stock price only' }]} />
           <span className="hint">
-            Strikes, expirations and dollar risk follow {symbol} {timeframe}’s “What to trade on a signal” in <Link to="/master">Master Chart</Link> (or its defaults).
+            {optionTrade === 'directional' && 'BUY signal: buy a call. SELL signal: buy a put.'}
+            {optionTrade === 'debit_spread' && 'BUY signal: buy a call at the strike, sell one the width higher (bull call spread). SELL signal: the same with puts, lower.'}
+            {optionTrade === 'credit_spread' && 'BUY signal: sell a put at the strike, buy one the width lower (bull put spread). SELL signal: the same with calls, higher.'}
+            {optionTrade === 'off' && 'Only the stock-price result.'}
           </span>
         </div>
-        {optionsMode !== 'off' && (
+        {optionTrade !== 'off' && (
+          <div className="grid-2">
+            <div className="field">
+              <span>{optionTrade === 'credit_spread' ? 'Sold strike' : 'Strike'}</span>
+              <Segmented label="Place the strike by" value={form.strike_by} onChange={(v) => setForm({ ...form, strike_by: v })}
+                options={[{ value: 'pct', label: '% from price' }, { value: 'delta', label: 'Delta' }]} />
+              {form.strike_by === 'pct'
+                ? <input className="input num" inputMode="decimal" aria-label="Percent out of the money" value={form.strike_pct} onChange={(e) => setForm({ ...form, strike_pct: e.target.value })} />
+                : <input className="input num" inputMode="decimal" aria-label="Delta" value={form.strike_delta} onChange={(e) => setForm({ ...form, strike_delta: e.target.value })} />}
+              <span className="hint">
+                {form.strike_by === 'pct'
+                  ? 'Percent out of the money: 0 = at the money, 5 = 5% out of the money, −3 = 3% in the money. The nearest listed strike is used.'
+                  : 'As a positive number for calls and puts: 0.50 ≈ at the money, 0.30 out of the money, 0.70 in the money. Worked out from each option’s price at entry.'}
+              </span>
+            </div>
+            {optionTrade !== 'directional' ? (
+              <Field label="Width ($)" hint="Distance to the other strike, further out of the money. The nearest listed strike is used; the real width is in each trade.">
+                <input className="input num" inputMode="decimal" value={form.width_usd} onChange={(e) => setForm({ ...form, width_usd: e.target.value })} />
+              </Field>
+            ) : <div />}
+            <div className="field">
+              <span>Expiration</span>
+              <Segmented label="Expiration" value={form.expiry_mode} onChange={(v) => setForm({ ...form, expiry_mode: v })}
+                options={[{ value: 'auto', label: 'From trade length' }, { value: 'fixed', label: 'Fixed days' }]} />
+              {form.expiry_mode === 'fixed'
+                ? <input className="input num" inputMode="numeric" aria-label="Days to expiration at least" value={form.expiry_days} onChange={(e) => setForm({ ...form, expiry_days: e.target.value })} />
+                : <input className="input num" inputMode="decimal" aria-label="Margin over the average trade, percent" value={form.margin_pct} onChange={(e) => setForm({ ...form, margin_pct: e.target.value })} />}
+              <span className="hint">
+                {form.expiry_mode === 'fixed'
+                  ? 'The first expiration at least this many days after entry.'
+                  : 'The first expiration after the average trade length plus this percent (or the average losing trade, if longer), from trades already closed at each signal.'}
+                {' '}Positions still open the day before expiration are closed that day.
+              </span>
+            </div>
+            <Field label="Risk per trade ($)" hint="The most each position can lose: what was paid, or a credit spread’s width less its credit. Buys as many as fit.">
+              <input className="input num" inputMode="decimal" value={form.risk_usd} onChange={(e) => setForm({ ...form, risk_usd: e.target.value })} />
+            </Field>
+            <Field label="Fee per contract ($)" hint="Charged on each contract bought or sold, opening and closing. 0 for none.">
+              <input className="input num" inputMode="decimal" value={form.commission} onChange={(e) => setForm({ ...form, commission: e.target.value })} />
+            </Field>
+          </div>
+        )}
+        {optionTrade !== 'off' && (
           <div className="field">
             <span>Option prices</span>
             <Segmented label="Option prices" value={optionPrices} onChange={setOptionPrices}
@@ -504,6 +690,7 @@ export default function BacktestPage() {
                     <td className="right">
                       <div className="actions">
                         <button className="btn btn-small" disabled={action.busy} onClick={() => void open(r.id)}>Open</button>
+                        <button className="btn btn-small" type="button" onClick={() => reuse(r)} title="Put this run’s setup in the form">Use setup</button>
                         <button className="btn btn-small btn-danger" disabled={action.busy} onClick={() => void remove(r.id)}>Delete</button>
                       </div>
                     </td>

@@ -15,6 +15,7 @@ import math
 from abc import ABC, abstractmethod
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from statistics import NormalDist
 
 from app.marketdata.base import DailyClose
 
@@ -65,6 +66,39 @@ def black_scholes(option_type: str, spot: float, strike: float, years: float, vo
     if option_type == "call":
         return spot * ncdf(d1) - strike * disc * ncdf(d2)
     return strike * disc * ncdf(-d2) - spot * ncdf(-d1)
+
+
+def delta(option_type: str, spot: float, strike: float, years: float, vol: float, rate: float = RATE) -> float | None:
+    """How much the option's price moves per $1 of the stock (puts negative)."""
+    if years <= 0 or vol <= 0 or spot <= 0 or strike <= 0:
+        return None
+    d1 = (math.log(spot / strike) + (rate + vol * vol / 2.0) * years) / (vol * math.sqrt(years))
+    return ncdf(d1) if option_type == "call" else ncdf(d1) - 1.0
+
+
+def implied_vol(option_type: str, price: float, spot: float, strike: float, years: float, rate: float = RATE) -> float | None:
+    """The volatility at which the formula gives this price, or None when no volatility does
+    (a price below what the option is worth at expiration, or above the stock or strike)."""
+    if years <= 0 or price <= 0 or spot <= 0 or strike <= 0:
+        return None
+    lo, hi = 0.005, 8.0
+    if not black_scholes(option_type, spot, strike, years, lo, rate) <= price <= black_scholes(option_type, spot, strike, years, hi, rate):
+        return None
+    for _ in range(60):
+        mid = (lo + hi) / 2.0
+        if black_scholes(option_type, spot, strike, years, mid, rate) < price:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2.0
+
+
+def strike_for_delta(option_type: str, spot: float, target: float, years: float, vol: float, rate: float = RATE) -> float:
+    """The strike whose delta (as a positive number, 0 to 1) is `target`."""
+    target = min(max(target, 0.001), 0.999)
+    d1 = NormalDist().inv_cdf(target if option_type == "call" else 1.0 - target)
+    sq = vol * math.sqrt(years)
+    return spot * math.exp((rate + vol * vol / 2.0) * years - d1 * sq)
 
 
 def historical_vol(closes: list[float]) -> float | None:

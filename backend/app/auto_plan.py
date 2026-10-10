@@ -229,7 +229,7 @@ class Sizing:
         return float(round(self.unit_reward / self.unit_risk, 2))
 
 
-def size(choice: Choice, rule: str, risk_usd: Decimal) -> Sizing | str:
+def size(choice: Choice, rule: str, risk_usd: Decimal, where: str = "“What to trade on a signal”") -> Sizing | str:
     """The opening price, risk and number of contracts or spreads, or why it cannot be traded."""
     if choice.structure == "directional":
         price = market_price("buy", choice.bought.book, rule)
@@ -255,7 +255,7 @@ def size(choice: Choice, rule: str, risk_usd: Decimal) -> Sizing | str:
     if qty < 1:
         what = "contract" if choice.structure == "directional" else "spread"
         return (f"Your risk per trade (${risk_usd:,.2f}) is less than what one {what} can lose "
-                f"(${unit_risk:,.2f}). Raise it in “What to trade on a signal”.")
+                f"(${unit_risk:,.2f}). Raise it in {where}.")
     return Sizing(price, unit_risk, unit_reward, qty)
 
 

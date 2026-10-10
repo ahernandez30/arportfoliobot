@@ -9,9 +9,10 @@ from pydantic import Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import auto_plan, routes_market, user_settings
+from app import routes_market, user_settings
 from app.backtest import run as bt
 from app.backtest.option_history import ModelOptionHistory, OptionHistory
+from app.backtest.options import OptionSetup
 from app.backtest.real_options import Missing, StoredOptionHistory
 from app.inputs import Strict
 from app.marketdata import service as md_service
@@ -33,12 +34,10 @@ class RunIn(Strict):
     end: date | None = None
     starting_cash: float = Field(100_000.0, gt=0, le=1_000_000_000)
     stock_dollars: float = Field(10_000.0, gt=0, le=1_000_000_000)
-    # off: stock price only; plan: the structure(s) in “What to trade on a signal”; compare: all three.
-    options: Literal["off", "plan", "compare"] = "compare"
+    # The option setup to replay on every trade; none: stock price only.
+    option: OptionSetup | None = None
     # estimate: the pricing model; real: Databento prices the user has downloaded (or will).
     option_prices: Literal["estimate", "real"] = "estimate"
-    # “What to trade on a signal” to use; empty: the one saved for this symbol and timeframe.
-    trade: dict[str, Any] | None = None
 
 
 class RunError(Exception):
@@ -58,15 +57,12 @@ class Prepared:
     data: StrategyData
     daily: list
     setup: bt.Setup
-    structures: tuple[str, ...]
-    trade: auto_plan.TradeSettings
+    option: OptionSetup | None
     rule: str
 
 
 async def prepare(db: Session, user: User, body: RunIn) -> Prepared:
     """Checks the request and gathers the candles (with the user's stored history)."""
-    from app.routes_auto import _trade_settings  # avoid an import loop with the routes
-
     s = STRATEGIES.get(body.strategy)
     if s is None:
         raise RunError(404, "Unknown strategy.")
@@ -86,8 +82,6 @@ async def prepare(db: Session, user: User, body: RunIn) -> Prepared:
             inputs = s.defaults()
     except InputError as exc:
         raise RunError(422, str(exc))
-    trade = _trade_settings(body.trade) if body.trade is not None else auto_plan.load_settings(preset.trade if preset else None)
-    structures = {"off": (), "plan": trade.structures(), "compare": auto_plan.STRUCTURES}[body.options]
     rule = user_settings.load(db, user.id).paper.fill_rule
     md = routes_market.providers.get(db, user.id)
     if md is None:
@@ -101,8 +95,8 @@ async def prepare(db: Session, user: User, body: RunIn) -> Prepared:
     if not data.bars:
         raise RunError(404, f"No {tf} candles for {symbol}.")
     daily = bt.daily_closes(daily_bars)
-    setup = bt.Setup(body.start, body.end, body.starting_cash, body.stock_dollars, tuple(structures), trade, rule)
-    return Prepared(s, symbol, tf, inputs, data, daily, setup, tuple(structures), trade, rule)
+    setup = bt.Setup(body.start, body.end, body.starting_cash, body.stock_dollars, body.option, rule)
+    return Prepared(s, symbol, tf, inputs, data, daily, setup, body.option, rule)
 
 
 def model_history(p: Prepared) -> ModelOptionHistory:
@@ -119,7 +113,7 @@ def plan_missing(db: Session, user_id: int, p: Prepared) -> tuple[Missing, int]:
 
 
 def history_for(db: Session, user_id: int, p: Prepared, prices: str) -> OptionHistory | None:
-    if not p.structures:
+    if p.option is None:
         return None
     if prices == "real":
         return StoredOptionHistory(db, user_id, p.symbol)
