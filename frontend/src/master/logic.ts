@@ -81,5 +81,6 @@ export function ruleText(i: Inputs): string {
     const sl = i.slPctSS as number
     return `${i.modoCesta ? 'Basket' : 'Signal to signal'}${tp || sl ? ` · take profit ${tp || '—'}% / stop ${sl || '—'}%` : ' (opposite signal only)'}`
   }
-  return `Target ${i.objPct}% / stop ${i.stopPct}% · ${i.cierraMercado ? `closes after ${i.maxVelas} candles` : `floats after ${i.maxVelas} candles`}`
+  const cesta = (i.cestaN as number) > 0 ? ` · CESTA at ${i.cestaN}%` : ''
+  return `Target ${i.objPct}% / stop ${i.stopPct}% · ${i.cierraMercado ? `closes after ${i.maxVelas} candles` : `floats after ${i.maxVelas} candles`}${cesta}`
 }

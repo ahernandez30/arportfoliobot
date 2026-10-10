@@ -1,6 +1,6 @@
 //@version=5
 // ============================================================================
-//  SWING — Vela Diaria / Semanal      ·   Alex + Claude · 2026-10-09 (v9.36 · CALENDARIO de la bolsa de NY: si el viernes es festivo, la vela semanal se cierra el último día con mercado (jueves, o antes); en marcos chicos, los días de cierre a las 13:00 la última vela es la de las 13:00 | v9.35 · ARREGLOS: el cambio del Weekly ya no tapa un TP/SL tocado antes en la vela · los gaps cierran al precio de apertura (no al nivel exacto) · lo que se cierra en la vela libera sitio para la señal de esa vela (una a la vez / máx abiertas) · en señal a señal / basket la contraria SIEMPRE cierra (franja, máx del día o pérdidas W solo frenan las entradas) · el máx del día solo cuenta lo que de verdad abre · el contador de pérdidas W se pone a 0 una sola vez por señal | v9.34 · SIMULACIÓN de credit spreads en $: cuenta, $ por spread, paga, por año, peor caída y máximo abierto a la vez | v9.33 · cuadro CREDIT SPREADS: dónde cierra el precio a vencimiento tras cada señal, paga mínima necesaria y ventaja vs azar, por strike y días | v9.32 · PRUEBA DE AZAR (señal vs solo largos / solo cortos / moneda / momento al azar, con t-stat) · LARGOS vs CORTOS por separado · DIRECCIÓN ambas/solo largos/solo cortos · duración media en todos los modos · etiqueta de versión correcta | v9.31 · golpes perdidos seguidos y peor racha en $; tabla por años con $ y % de la cuenta | v9.30 · cambio de escalera al cierre de la vela superior, detectado a mano (viernes 16:00) | v9.29 · la escalera cambia AL CIERRE de la vela superior (viernes 16:00 en el Weekly), no en la siguiente | v9.28 · UNA A LA VEZ tambien cuenta lo que se cierra en la vela (la contraria entra en la misma vela); 'Ahora' avisa de una a la vez | v9.27 · cerrar con la contraria abre aunque este en el maximo; cerrar al cambiar el Weekly; fila Abiertas | v9.26 · en el grafico SOLO las señales que de verdad abren con tus ajustes | v9.25 · media movil y ADX al final de los ajustes | v9.24 · ajustes ordenados por temas, fuera el ATR, fila 'Ahora' con lo que frena las señales | v9.23 · ESCALERA: max. perdidas por señal Weekly, luego espera la proxima señal Weekly | v9.22 · modo normal: opcion de cerrar las abiertas con la señal contraria | v9.21 · CAPITAL: capital inicial + % por operacion (acciones), fila CAPITAL en la tabla | v9.20 · modo normal: max operaciones abiertas a la vez + contar 'Repartido' o 'Cada operacion su %' | v9.19 · BASKET 'repartido': cada entrada vale 1/max del capital, la cesta cuenta su % repartido | v9.18 · BASKET llena: las señales que ya no entran no pintan flecha, cada flecha = una entrada real | v9.17 · ESCALERA con ajustes propios por nivel: Weekly / Daily / 4h con los settings probados, y RACHA en cada nivel | v9.16 · BASKET: cada entrada cuenta como una operacion (sus ganadas/perdidas, su tipo y su %) | v9.15 · el NOMBRE de la señal sale de la dirección que disparó (FLECO ▲ + RACHA ▼ en la misma vela -> la venta se llama RACHA) | v9.14 · GANADORAS / PERDEDORAS SEGUIDAS: tras N seguidas en la misma dirección, la siguiente tiene que ser la contraria | v9.13 · RACHA-FLECO: umbral de mecha propio + "sigue buscando" (dispara en la 1a vela con fleco mientras la racha continúe) | v9.9-12: RACHA)
+//  SWING — Vela Diaria / Semanal      ·   Alex + Claude · 2026-10-10 (v9.37 · ESCALERA nivel 3 = 30 MIN con sus propios ajustes (de entrada los del 30m fijado en la web: sin LLENA, FLECO 55/3, ENGULF 61, RACHA 3/5), con opciones: sin ENGULF en la 1a vela, media movil y cambiar solo a favor de los niveles 1 y 2 · el nivel 3 de 30 min / 1 hora cambia AL CIERRE de su vela · CESTA del modo normal: cierra TODAS las abiertas cuando su ganancia junta llega al % que pongas | v9.36 · CALENDARIO de la bolsa de NY: si el viernes es festivo, la vela semanal se cierra el último día con mercado (jueves, o antes); en marcos chicos, los días de cierre a las 13:00 la última vela es la de las 13:00 | v9.35 · ARREGLOS: el cambio del Weekly ya no tapa un TP/SL tocado antes en la vela · los gaps cierran al precio de apertura (no al nivel exacto) · lo que se cierra en la vela libera sitio para la señal de esa vela (una a la vez / máx abiertas) · en señal a señal / basket la contraria SIEMPRE cierra (franja, máx del día o pérdidas W solo frenan las entradas) · el máx del día solo cuenta lo que de verdad abre · el contador de pérdidas W se pone a 0 una sola vez por señal | v9.34 · SIMULACIÓN de credit spreads en $: cuenta, $ por spread, paga, por año, peor caída y máximo abierto a la vez | v9.33 · cuadro CREDIT SPREADS: dónde cierra el precio a vencimiento tras cada señal, paga mínima necesaria y ventaja vs azar, por strike y días | v9.32 · PRUEBA DE AZAR (señal vs solo largos / solo cortos / moneda / momento al azar, con t-stat) · LARGOS vs CORTOS por separado · DIRECCIÓN ambas/solo largos/solo cortos · duración media en todos los modos · etiqueta de versión correcta | v9.31 · golpes perdidos seguidos y peor racha en $; tabla por años con $ y % de la cuenta | v9.30 · cambio de escalera al cierre de la vela superior, detectado a mano (viernes 16:00) | v9.29 · la escalera cambia AL CIERRE de la vela superior (viernes 16:00 en el Weekly), no en la siguiente | v9.28 · UNA A LA VEZ tambien cuenta lo que se cierra en la vela (la contraria entra en la misma vela); 'Ahora' avisa de una a la vez | v9.27 · cerrar con la contraria abre aunque este en el maximo; cerrar al cambiar el Weekly; fila Abiertas | v9.26 · en el grafico SOLO las señales que de verdad abren con tus ajustes | v9.25 · media movil y ADX al final de los ajustes | v9.24 · ajustes ordenados por temas, fuera el ATR, fila 'Ahora' con lo que frena las señales | v9.23 · ESCALERA: max. perdidas por señal Weekly, luego espera la proxima señal Weekly | v9.22 · modo normal: opcion de cerrar las abiertas con la señal contraria | v9.21 · CAPITAL: capital inicial + % por operacion (acciones), fila CAPITAL en la tabla | v9.20 · modo normal: max operaciones abiertas a la vez + contar 'Repartido' o 'Cada operacion su %' | v9.19 · BASKET 'repartido': cada entrada vale 1/max del capital, la cesta cuenta su % repartido | v9.18 · BASKET llena: las señales que ya no entran no pintan flecha, cada flecha = una entrada real | v9.17 · ESCALERA con ajustes propios por nivel: Weekly / Daily / 4h con los settings probados, y RACHA en cada nivel | v9.16 · BASKET: cada entrada cuenta como una operacion (sus ganadas/perdidas, su tipo y su %) | v9.15 · el NOMBRE de la señal sale de la dirección que disparó (FLECO ▲ + RACHA ▼ en la misma vela -> la venta se llama RACHA) | v9.14 · GANADORAS / PERDEDORAS SEGUIDAS: tras N seguidas en la misma dirección, la siguiente tiene que ser la contraria | v9.13 · RACHA-FLECO: umbral de mecha propio + "sigue buscando" (dispara en la 1a vela con fleco mientras la racha continúe) | v9.9-12: RACHA)
 //
 //  v7: ESCALERA multi-timeframe. Solo pasan las señales a favor de TODOS los niveles
 //      de sesgo superior activos (hasta 3 TFs, ej 60/D/W). Cada nivel usa la misma
@@ -23,12 +23,12 @@
 //
 //  Ponlo en el grafico DIARIO o SEMANAL (cambia el TF del chart para testear cada uno).
 // ============================================================================
-indicator("Swing — Vela Diaria/Semanal v9.36", overlay=true, max_labels_count=500, max_lines_count=500)
+indicator("Swing — Vela Diaria/Semanal v9.37", overlay=true, max_labels_count=500, max_lines_count=500)
 
 // ============================ AJUSTES (v9.24: ordenados por temas) ============================
 // 1 · TIPOS DE VELA: qué velas dan señal y con qué umbrales. RACHA (v9.9): N velas ROJAS seguidas -> COMPRA,
 //     N VERDES -> VENTA (agotamiento, invertido).
-VER = "v9.36"   // v9.32: versión que sale en el cuadro de resultados (un solo lugar)
+VER = "v9.37"   // v9.32: versión que sale en el cuadro de resultados (un solo lugar)
 verLlena  = input.bool(true, "LLENA: usar", group="1 · Tipos de vela (la señal)")
 cuerpoLlena  = input.float(85, "LLENA: cuerpo >= % del rango", minval=1, maxval=100, group="1 · Tipos de vela (la señal)")
 verFleco  = input.bool(true, "FLECO: usar", group="1 · Tipos de vela (la señal)")
@@ -57,7 +57,7 @@ tfS1    = input.timeframe("W", "TF", inline="n1", group="3 · Escalera (marcos s
 filtro2 = input.bool(false, "  · nivel 2 activo", inline="n2", group="3 · Escalera (marcos superiores)")
 tfS2    = input.timeframe("D", "TF", inline="n2", group="3 · Escalera (marcos superiores)")
 filtro3 = input.bool(false, "  · nivel 3 activo", inline="n3", group="3 · Escalera (marcos superiores)")
-tfS3    = input.timeframe("240", "TF", inline="n3", group="3 · Escalera (marcos superiores)")
+tfS3    = input.timeframe("30", "TF", inline="n3", group="3 · Escalera (marcos superiores)")
 maxPerdW = input.int(0, "  · máx. PÉRDIDAS por señal del nivel 1 (Weekly); luego espera la próxima (0 = no)", minval=0, group="3 · Escalera (marcos superiores)")
 verSesgo        = input.bool(true,  "  · pintar el fondo cuando la escalera esta alineada", group="3 · Escalera (marcos superiores)")
 verBloqueadas   = input.bool(false, "  · marcar con X las señales BLOQUEADAS", group="3 · Escalera (marcos superiores)")
@@ -84,17 +84,22 @@ e2FlM = input.float(4,  "cuerpo min %", minval=0, maxval=90, inline="f2", group=
 e2En  = input.float(61, "ENGULF cuerpo >= % (0 = no importa)", minval=0, maxval=100, group=G2)
 e2nR  = input.int(2, "RACHA: N rojas -> compra", minval=1, maxval=20, inline="r2", group=G2)
 e2nV  = input.int(7, "N verdes -> venta", minval=1, maxval=20, inline="r2", group=G2)
-G3 = "3c · Escalera nivel 3 (4 horas)"
-e3L   = input.bool(true, "LLENA", inline="t3", group=G3)
+// v9.37: nivel 3 = 30 MIN con SUS ajustes. De entrada, los del grafico de 30 min fijado en la web (TSLA 30m):
+//        sin LLENA, FLECO 55 / cuerpo 3, ENGULF 61, RACHA 3 rojas / 5 verdes, ENGULF permitido a las 9:30, sin media.
+G3 = "3c · Escalera nivel 3 (30 min)"
+e3L   = input.bool(false, "LLENA", inline="t3", group=G3)
 e3F   = input.bool(true, "FLECO", inline="t3", group=G3)
-e3E   = input.bool(false, "ENGULF", inline="t3", group=G3)
+e3E   = input.bool(true, "ENGULF", inline="t3", group=G3)
 e3R   = input.bool(true, "RACHA", inline="t3", group=G3)
-e3Ll  = input.float(70, "LLENA cuerpo >= %", minval=1, maxval=100, group=G3)
+e3Ll  = input.float(75, "LLENA cuerpo >= %", minval=1, maxval=100, group=G3)
 e3Fl  = input.float(55, "FLECO mecha >= %", minval=1, maxval=100, inline="f3", group=G3)
-e3FlM = input.float(8,  "cuerpo min %", minval=0, maxval=90, inline="f3", group=G3)
-e3En  = input.float(0,  "ENGULF cuerpo >= % (0 = no importa)", minval=0, maxval=100, group=G3)
-e3nR  = input.int(2, "RACHA: N rojas -> compra", minval=1, maxval=20, inline="r3", group=G3)
+e3FlM = input.float(3,  "cuerpo min %", minval=0, maxval=90, inline="f3", group=G3)
+e3En  = input.float(61, "ENGULF cuerpo >= % (0 = no importa)", minval=0, maxval=100, group=G3)
+e3nR  = input.int(3, "RACHA: N rojas -> compra", minval=1, maxval=20, inline="r3", group=G3)
 e3nV  = input.int(5, "N verdes -> venta", minval=1, maxval=20, inline="r3", group=G3)
+e3NoEng1 = input.bool(false, "NO señalar ENGULF en la 1a vela de la sesión (9:30; solo si el nivel es de minutos)", group=G3)
+e3MA     = input.int(0, "MEDIA MÓVIL del nivel: compra solo por encima, venta por debajo (0 = no)", minval=0, maxval=500, group=G3)
+e3Sigue  = input.bool(true, "Cambia SOLO a favor de los niveles 1 y 2 activos (como las señales del gráfico de 30 min)", group=G3)
 // 4 · MODO NORMAL: cada señal abre su operacion con su objetivo / stop (desde su entrada) y se cierra sola por
 //     TP, SL o velas. Tope de abiertas a la vez, como contarlas, y cerrar con la señal contraria (opcional).
 objPct   = input.float(15, "OBJETIVO % (a favor)", minval=0.1, group="4 · Modo NORMAL (cada señal, su operación)")
@@ -110,6 +115,14 @@ cierraContra = input.bool(false, "CERRAR las abiertas con la señal CONTRARIA", 
 dirOper  = input.string("Ambas", "DIRECCIÓN: qué lado operar", options=["Ambas", "Solo largos", "Solo cortos"], group="4 · Modo NORMAL (cada señal, su operación)")
 usarIntra = input.bool(true,  "Camino real: mirar DENTRO de la vela para el orden real", group="4 · Modo NORMAL (cada señal, su operación)")
 tfIntra   = input.timeframe("60", "  · temporalidad del camino (ej: 1D en semanal, 60 en diario)", group="4 · Modo NORMAL (cada señal, su operación)")
+cestaN     = input.float(0, "CESTA: cerrar TODAS las abiertas cuando la GANANCIA JUNTA llegue a % (0 = no)", minval=0, group="4 · Modo NORMAL (cada señal, su operación)")
+cestaNMide = input.string("Suma de todas", "  · CESTA: cómo medir la ganancia junta", options=["Suma de todas", "Media de las abiertas", "Repartido (suma / máx. abiertas)"], group="4 · Modo NORMAL (cada señal, su operación)")
+cestaMin   = input.int(2, "  · CESTA: solo si hay al menos N abiertas", minval=1, group="4 · Modo NORMAL (cada señal, su operación)")
+// v9.37: CESTA del modo NORMAL (no es el BASKET de señal a señal). Al CIERRE de cada vela suma el % de las abiertas que
+// siguen vivas (las que esa vela no cierra por objetivo / stop / cambio W / contraria / velas); si llega al %, cierra
+// todas al cierre (etiqueta CESTA) y las señales vuelven a abrir desde cero. 15 abiertas a +4% = +60% con "Suma de todas".
+f_cestaMide(sm, n) =>
+    cestaNMide == "Suma de todas" ? sm : (cestaNMide == "Media de las abiertas" ? (n > 0 ? sm / n : 0.0) : (maxAbiertas > 0 ? sm / maxAbiertas : sm))
 // 5 · SEÑAL A SEÑAL: una posicion que cambia de lado con la señal opuesta (o TP / SL / hora). BASKET: suma
 //     entradas del mismo lado y cierra toda la cesta junta (TP / SL sobre el promedio). Solo con SEÑAL A SEÑAL.
 modoSenal = input.bool(false, "SEÑAL A SEÑAL: mantiene la posición y solo cambia de lado en señal OPUESTA (buy↔sell)", group="5 · SEÑAL A SEÑAL y BASKET (cesta)")
@@ -283,7 +296,7 @@ tipoDnS = (verEngulf and dEnDn) ? 2 : ((verFleco and dFlDn) ? 1 : (dRachaDn ? 3 
 // La MISMA lógica de señal, con los ajustes PROPIOS de cada nivel (v9.17): qué tipos
 // cuentan (LLENA / FLECO / ENGULF) y la RACHA (N velas rojas seguidas -> compra,
 // N verdes -> venta), igual que en el gráfico de ese marco.
-f_sig(vL, vF, vE, cLl, mFl, cMinFl, cEng, uR, nR, nV) =>
+f_sig(vL, vF, vE, cLl, mFl, cMinFl, cEng, uR, nR, nV, eb) =>
     _rng = high - low
     _cu  = math.abs(close - open)
     _rel = _rng > 0 ? _cu / _rng * 100.0 : 0.0
@@ -296,8 +309,8 @@ f_sig(vL, vF, vE, cLl, mFl, cMinFl, cEng, uR, nR, nV) =>
     _esLl = _rel >= cLl
     _esEn = (_v != _apV) and _cu > _cu1 and _rel >= cEng
     _esFl = _mM >= mFl and _rel >= cMinFl
-    _up = (vL and _esLl and not _esEn and not _esFl and _v) or (vE and _esEn and _v) or (vF and _esFl and not _esEn and _mI > _mS and close >= low[1])
-    _dn = (vL and _esLl and not _esEn and not _esFl and not _v) or (vE and _esEn and not _v) or (vF and _esFl and not _esEn and _mS >= _mI and close <= high[1])
+    _up = (vL and _esLl and not _esEn and not _esFl and _v) or (vE and _esEn and _v and not eb) or (vF and _esFl and not _esEn and _mI > _mS and close >= low[1])
+    _dn = (vL and _esLl and not _esEn and not _esFl and not _v) or (vE and _esEn and not _v and not eb) or (vF and _esFl and not _esEn and _mS >= _mI and close <= high[1])
     // RACHA: velas seguidas del mismo color (cuenta exacta al llegar a N, como en el gráfico)
     _nRojas  = nz(ta.barssince(not (close < open)))
     _nVerdes = nz(ta.barssince(not (close > open)))
@@ -311,9 +324,16 @@ f_arw(a, s) => not a ? "·" : (s == 1 ? "▲" : (s == -1 ? "▼" : "="))
 // SIN REPINTADO (patrón canónico de Pine): [1] + lookahead_on pide la señal de la
 // barra YA CERRADA de cada TF superior. Queda fija y es idéntica en histórico y en
 // vivo — nunca ve el futuro ni cambia dentro de la barra en curso.
-[w1Up, w1Dn] = f_sig(e1L, e1F, e1E, e1Ll, e1Fl, e1FlM, e1En, e1R, e1nR, e1nV)
-[w2Up, w2Dn] = f_sig(e2L, e2F, e2E, e2Ll, e2Fl, e2FlM, e2En, e2R, e2nR, e2nV)
-[w3Up, w3Dn] = f_sig(e3L, e3F, e3E, e3Ll, e3Fl, e3FlM, e3En, e3R, e3nR, e3nV)
+[w1Up, w1Dn] = f_sig(e1L, e1F, e1E, e1Ll, e1Fl, e1FlM, e1En, e1R, e1nR, e1nV, false)
+[w2Up, w2Dn] = f_sig(e2L, e2F, e2E, e2Ll, e2Fl, e2FlM, e2En, e2R, e2nR, e2nV, false)
+// v9.37: nivel 3 con sus opciones: sin ENGULF en la vela de las 9:30 (si el nivel es de minutos) y media movil propia
+e3Min = timeframe.in_seconds(tfS3) < 86400
+e3MAn = math.max(e3MA, 1)
+_p930 = (hour(time, tzApertura) * 60 + minute(time, tzApertura)) == 570
+_ma3n = ta.sma(close, e3MAn)
+[w3Up0, w3Dn0] = f_sig(e3L, e3F, e3E, e3Ll, e3Fl, e3FlM, e3En, e3R, e3nR, e3nV, e3NoEng1 and e3Min and _p930)
+w3Up = w3Up0 and (e3MA == 0 or (not na(_ma3n) and close > _ma3n))
+w3Dn = w3Dn0 and (e3MA == 0 or (not na(_ma3n) and close < _ma3n))
 
 // --- tres niveles de la escalera (cada uno un TF superior, con SUS ajustes) ---
 [u1, d1] = request.security(syminfo.tickerid, tfS1, [w1Up[1], w1Dn[1]], lookahead=barmerge.lookahead_on)
@@ -334,10 +354,6 @@ if d2
     s2 := -1
 if u2
     s2 := 1
-if d3
-    s3 := -1
-if u3
-    s3 := 1
 // v9.30 (Alex): la vela superior se lee EN SU CIERRE (v9.29 no disparaba: time_close(tf) no daba el cierre esperado).
 // Se detecta a mano la ULTIMA vela del chart de cada vela superior (W: ultima vela de la sesion del VIERNES; D: ultima
 // del dia; 240: las que cierran a las 13:30 y 16:00 ET) y se ARMA esa vela superior con las velas del chart (apertura,
@@ -398,8 +414,10 @@ f_ultimoDiaSemana() =>
 f_finTF(tf) =>
     _ul = f_ultimaRegular()
     _hc = hour(time_close, tzApertura) * 60 + minute(time_close, tzApertura)
-    tf == "W" ? (_ul and f_ultimoDiaSemana()) : (tf == "D" or tf == "1D") ? _ul : tf == "240" ? (_ul or _hc == 810) : false
-f_sigX(vL, vF, vE, cLl, mFl, cMinFl, cEng, uR, nR, nV, o, h, l, c, o1, h1, l1, c1, ro1, ve1) =>
+    _tfm = str.tonumber(tf)
+    // v9.37: niveles de minutos (30, 60...): su vela cierra cada N minutos desde las 9:30, y siempre al final de la sesion
+    tf == "W" ? (_ul and f_ultimoDiaSemana()) : (tf == "D" or tf == "1D") ? _ul : tf == "240" ? (_ul or _hc == 810) : (not na(_tfm) and _tfm < 240) ? (_ul or (_hc > 570 and _hc < 960 and (_hc - 570) % int(_tfm) == 0)) : false
+f_sigX(vL, vF, vE, cLl, mFl, cMinFl, cEng, uR, nR, nV, o, h, l, c, o1, h1, l1, c1, ro1, ve1, eb) =>
     _rng = h - l
     _cu  = math.abs(c - o)
     _rel = _rng > 0 ? _cu / _rng * 100.0 : 0.0
@@ -412,8 +430,8 @@ f_sigX(vL, vF, vE, cLl, mFl, cMinFl, cEng, uR, nR, nV, o, h, l, c, o1, h1, l1, c
     _esLl = _rel >= cLl
     _esEn = (_v != _apV) and _cu > _cu1 and _rel >= cEng
     _esFl = _mM >= mFl and _rel >= cMinFl
-    _up = (vL and _esLl and not _esEn and not _esFl and _v) or (vE and _esEn and _v) or (vF and _esFl and not _esEn and _mI > _mS and c >= l1)
-    _dn = (vL and _esLl and not _esEn and not _esFl and not _v) or (vE and _esEn and not _v) or (vF and _esFl and not _esEn and _mS >= _mI and c <= h1)
+    _up = (vL and _esLl and not _esEn and not _esFl and _v) or (vE and _esEn and _v and not eb) or (vF and _esFl and not _esEn and _mI > _mS and c >= l1)
+    _dn = (vL and _esLl and not _esEn and not _esFl and not _v) or (vE and _esEn and not _v and not eb) or (vF and _esFl and not _esEn and _mS >= _mI and c <= h1)
     _nRo = c < o ? nz(ro1) + 1 : 0
     _nVe = c > o ? nz(ve1) + 1 : 0
     _up := _up or (uR and _nRo == nR)
@@ -424,7 +442,7 @@ _verdesS = nz(ta.barssince(not (close > open)))
 // vela superior ANTERIOR (ya cerrada) y sus rachas, por nivel
 [p1o, p1h, p1l, p1c, p1r, p1v] = request.security(syminfo.tickerid, tfS1, [open[1], high[1], low[1], close[1], _rojasS[1], _verdesS[1]], lookahead=barmerge.lookahead_on)
 [p2o, p2h, p2l, p2c, p2r, p2v] = request.security(syminfo.tickerid, tfS2, [open[1], high[1], low[1], close[1], _rojasS[1], _verdesS[1]], lookahead=barmerge.lookahead_on)
-[p3o, p3h, p3l, p3c, p3r, p3v] = request.security(syminfo.tickerid, tfS3, [open[1], high[1], low[1], close[1], _rojasS[1], _verdesS[1]], lookahead=barmerge.lookahead_on)
+[p3o, p3h, p3l, p3c, p3r, p3v, p3sm] = request.security(syminfo.tickerid, tfS3, [open[1], high[1], low[1], close[1], _rojasS[1], _verdesS[1], math.sum(close, math.max(e3MAn - 1, 1))[1]], lookahead=barmerge.lookahead_on)
 // la vela superior EN CURSO armada con las velas del chart
 var float k1o = na
 var float k1h = na
@@ -435,6 +453,7 @@ var float k2l = na
 var float k3o = na
 var float k3h = na
 var float k3l = na
+var int   k3t = na    // v9.37: hora de inicio de la vela del nivel 3 en curso
 if ta.change(time(tfS1)) != 0 or na(k1o)
     k1o := open
     k1h := high
@@ -453,15 +472,21 @@ if ta.change(time(tfS3)) != 0 or na(k3o)
     k3o := open
     k3h := high
     k3l := low
+    k3t := time
 else
     k3h := math.max(k3h, high)
     k3l := math.min(k3l, low)
 fin1 = f_finTF(tfS1)
 fin2 = f_finTF(tfS2)
 fin3 = f_finTF(tfS3)
-[u1c, d1c] = f_sigX(e1L, e1F, e1E, e1Ll, e1Fl, e1FlM, e1En, e1R, e1nR, e1nV, k1o, k1h, k1l, close, p1o, p1h, p1l, p1c, p1r, p1v)
-[u2c, d2c] = f_sigX(e2L, e2F, e2E, e2Ll, e2Fl, e2FlM, e2En, e2R, e2nR, e2nV, k2o, k2h, k2l, close, p2o, p2h, p2l, p2c, p2r, p2v)
-[u3c, d3c] = f_sigX(e3L, e3F, e3E, e3Ll, e3Fl, e3FlM, e3En, e3R, e3nR, e3nV, k3o, k3h, k3l, close, p3o, p3h, p3l, p3c, p3r, p3v)
+[u1c, d1c] = f_sigX(e1L, e1F, e1E, e1Ll, e1Fl, e1FlM, e1En, e1R, e1nR, e1nV, k1o, k1h, k1l, close, p1o, p1h, p1l, p1c, p1r, p1v, false)
+[u2c, d2c] = f_sigX(e2L, e2F, e2E, e2Ll, e2Fl, e2FlM, e2En, e2R, e2nR, e2nV, k2o, k2h, k2l, close, p2o, p2h, p2l, p2c, p2r, p2v, false)
+_k3p930 = not na(k3t) and (hour(k3t, tzApertura) * 60 + minute(k3t, tzApertura)) == 570
+[u3c0, d3c0] = f_sigX(e3L, e3F, e3E, e3Ll, e3Fl, e3FlM, e3En, e3R, e3nR, e3nV, k3o, k3h, k3l, close, p3o, p3h, p3l, p3c, p3r, p3v, e3NoEng1 and e3Min and _k3p930)
+// media del nivel 3 en la vela que cierra ahora: las N-1 anteriores (ya cerradas) + este cierre
+_ma3c = e3MA <= 1 ? close : (p3sm + close) / e3MA
+u3c = u3c0 and (e3MA == 0 or (not na(_ma3c) and close > _ma3c))
+d3c = d3c0 and (e3MA == 0 or (not na(_ma3c) and close < _ma3c))
 if fin1 and d1c
     s1 := -1
 if fin1 and u1c
@@ -470,10 +495,6 @@ if fin2 and d2c
     s2 := -1
 if fin2 and u2c
     s2 := 1
-if fin3 and d3c
-    s3 := -1
-if fin3 and u3c
-    s3 := 1
 
 // un nivel aprueba una dirección si no está activo, o si su sesgo no la contradice.
 // sesgo == 0 (arranque, aún sin señal en ese TF) deja pasar ambas.
@@ -498,6 +519,19 @@ chSecEsc = timeframe.in_seconds(timeframe.period)
 a1 = usarEscalera and filtro1 and timeframe.in_seconds(tfS1) > chSecEsc
 a2 = usarEscalera and filtro2 and timeframe.in_seconds(tfS2) > chSecEsc
 a3 = usarEscalera and filtro3 and timeframe.in_seconds(tfS3) > chSecEsc
+// v9.37: el nivel 3 se lee AQUI, con los niveles 1 y 2 ya al dia en esta vela. Con "cambia solo a favor" su señal
+//        solo cuenta si los niveles 1 y 2 activos no la contradicen (como las flechas del grafico de 30 min).
+//        Mismo orden de siempre: la vela superior cerrada ([1]) y luego la que cierra ahora; si hay las dos, manda la compra.
+ok3Dn = not e3Sigue or ((not a1 or s1 <= 0) and (not a2 or s2 <= 0))
+ok3Up = not e3Sigue or ((not a1 or s1 >= 0) and (not a2 or s2 >= 0))
+if d3 and ok3Dn
+    s3 := -1
+if u3 and ok3Up
+    s3 := 1
+if fin3 and d3c and ok3Dn
+    s3 := -1
+if fin3 and u3c and ok3Up
+    s3 := 1
 permUp = (not a1 or s1 >= 0) and (not a2 or s2 >= 0) and (not a3 or s3 >= 0)
 permDn = (not a1 or s1 <= 0) and (not a2 or s2 <= 0) and (not a3 or s3 <= 0)
 
@@ -680,6 +714,36 @@ _eqAntes = capEq
 _nAntes  = capN
 // v9.20: divisor del modo normal ("Repartido" con tope = cada operacion vale 1/maximo del capital)
 _divN = (normalCuenta == "Repartido" and maxAbiertas > 0) ? maxAbiertas : 1
+// v9.37: CESTA -> antes de cerrar nada, mira que abiertas SIGUEN VIVAS tras esta vela (no tocan objetivo / stop, ni las
+//        cierra el cambio W, la contraria o las velas) y suma su % al cierre. Mismas reglas que el bucle de abajo.
+f_toca(d, tgt, stp, usoI) =>
+    _h = d == 1 ? (open <= stp ? -1 : (open >= tgt ? 1 : 0)) : (open >= stp ? -1 : (open <= tgt ? 1 : 0))
+    if _h == 0
+        if usoI
+            for _j = 0 to array.size(aIHi) - 1
+                if _h == 0
+                    _ih = array.get(aIHi, _j)
+                    _il = array.get(aILo, _j)
+                    _h := d == 1 ? (_il <= stp ? -1 : (_ih >= tgt ? 1 : 0)) : (_ih >= stp ? -1 : (_il <= tgt ? 1 : 0))
+        else
+            _h := d == 1 ? (low <= stp ? -1 : (high >= tgt ? 1 : 0)) : (high >= stp ? -1 : (low <= tgt ? 1 : 0))
+    _h
+_cestaSum = 0.0
+_cestaVivas = 0
+if cestaN > 0 and not modoSenal and array.size(tEntry) > 0
+    for _q = 0 to array.size(tEntry) - 1
+        _eq = array.get(tEntry, _q)
+        _dq = array.get(tDir, _q)
+        _bq = array.get(tBar, _q)
+        if bar_index > _bq
+            _tq = _dq == 1 ? _eq * (1 + o) : _eq * (1 - o)
+            _sq = _dq == 1 ? _eq * (1 - st) : _eq * (1 + st)
+            _cwq = cierraCambioW and a1 and cambioW1 and _dq == -s1
+            _ccq = cierraContra and ((_dq == 1 and sigDn) or (_dq == -1 and sigUp))
+            if not (f_toca(_dq, _tq, _sq, intraOk and array.size(aIHi) > 0) != 0 or _cwq or _ccq or (bar_index - _bq) >= maxVelas)
+                _cestaVivas += 1
+                _cestaSum += (close - _eq) / _eq * 100.0 * _dq
+cestaSalta = cestaN > 0 and not modoSenal and _cestaVivas >= cestaMin and f_cestaMide(_cestaSum, _cestaVivas) >= cestaN
 if not modoSenal and array.size(tEntry) > 0
     i = array.size(tEntry) - 1
     while i >= 0
@@ -798,6 +862,25 @@ if not modoSenal and array.size(tEntry) > 0
                 capN := capN + 1
                 res := true
                 _motivo := "contra"
+            // v9.37: CESTA -> todas las que siguen vivas se cierran al cierre de esta vela
+            if not res and cestaSalta
+                movK = d == 1 ? (close - e) / e * 100.0 : (e - close) / e * 100.0
+                if movK >= 0
+                    array.set(nW, tp, array.get(nW, tp) + 1)
+                    resW := 1
+                else
+                    array.set(nL, tp, array.get(nL, tp) + 1)
+                    perdW := perdW + 1
+                    resW := -1
+                array.set(rS, tp, array.get(rS, tp) + movK / _divN)
+                _rT := movK
+                [_k1, _k2, _k3] = f_cap(capEq, capMx, capDD, movK)
+                capEq := _k1
+                capMx := _k2
+                capDD := _k3
+                capN := capN + 1
+                res := true
+                _motivo := "CESTA"
             if not res and (bar_index - b) >= maxVelas
                 mov = d == 1 ? (close - e) / e * 100.0 : (e - close) / e * 100.0
                 if cierraMercado
@@ -875,10 +958,16 @@ if not modoSenal and array.size(tEntry) > 0
             // ETIQUETA DE SALIDA (historia): dónde y por qué cerró cada trade —
             // TP (verde), SL (rojo), corte por velas (ámbar), flotante (gris). Va en la
             // vela del cierre, a su precio, así que NO comprime el gráfico.
-            if verSalidas
+            if verSalidas and _motivo != "CESTA"
                 _cs = _motivo == "TP" ? color.new(cVerde, 0) : (_motivo == "SL" ? color.new(cRoja, 0) : (_motivo == "corte" ? color.new(color.orange, 0) : ((_motivo == "contra" or _motivo == "cambio W") ? color.new(color.purple, 0) : color.new(color.gray, 20))))
                 label.new(bar_index, close, _motivo, yloc = yloc.price, style = label.style_label_left, color = _cs, textcolor = color.white, size = size.tiny)
         i := i - 1
+// v9.37: UNA etiqueta por vela para la CESTA (cuantas cerro y su ganancia junta)
+var int nCestas = 0
+if cestaSalta
+    nCestas += 1
+    if verSalidas
+        label.new(bar_index, close, "CESTA " + str.tostring(_cestaVivas) + " · " + (f_cestaMide(_cestaSum, _cestaVivas) >= 0 ? "+" : "") + str.tostring(f_cestaMide(_cestaSum, _cestaVivas), "#.#") + "%", yloc = yloc.price, style = label.style_label_left, color = color.new(color.teal, 0), textcolor = color.white, size = size.tiny)
 if modoSenal and not modoCesta
     // SEÑAL A SEÑAL: mantiene la posición hasta que (a) aparece la señal OPUESTA, o
     // (b) el precio toca el TAKE PROFIT o STOP LOSS en $ (si están puestos). Al cortar
@@ -1485,7 +1574,14 @@ if verRes and barstate.islast
     table.cell(tinfo, 1, 5, frena == "" ? "libre" : frena, text_color=frena == "" ? cVerde : color.yellow, bgcolor=hb, text_size=size.small)
     // v9.27: que hay abierto ahora (modo normal)
     table.cell(tinfo, 0, 6, "Abiertas", text_color=color.new(color.white, 15), bgcolor=hb, text_size=size.small)
-    table.cell(tinfo, 1, 6, modoSenal ? "-" : (str.tostring(nAbUp) + " compras · " + str.tostring(nAbDn) + " ventas"), text_color=color.white, bgcolor=hb, text_size=size.small)
+    // v9.37: con CESTA, cuanto lleva la ganancia junta de las abiertas y cuantas cestas se cerraron
+    _cestaTxt = ""
+    if cestaN > 0 and not modoSenal and array.size(tEntry) > 0
+        _smA = 0.0
+        for _q = 0 to array.size(tEntry) - 1
+            _smA += (close - array.get(tEntry, _q)) / array.get(tEntry, _q) * 100.0 * array.get(tDir, _q)
+        _cestaTxt := " · cesta " + (f_cestaMide(_smA, array.size(tEntry)) >= 0 ? "+" : "") + str.tostring(f_cestaMide(_smA, array.size(tEntry)), "#.#") + "% de " + str.tostring(cestaN, "#.#") + "% (" + str.tostring(nCestas) + " cerradas)"
+    table.cell(tinfo, 1, 6, modoSenal ? "-" : (str.tostring(nAbUp) + " compras · " + str.tostring(nAbDn) + " ventas" + _cestaTxt), text_color=color.white, bgcolor=hb, text_size=size.small)
     // v9.31: golpes (todo lo que cierra en una misma vela = 1) y la peor racha en dinero
     table.cell(tinfo, 0, 7, "Golpes seguidos", text_color=color.new(color.white, 15), bgcolor=hb, text_size=size.small)
     table.cell(tinfo, 1, 7, str.tostring(maxGolpeW) + " ganados · " + str.tostring(maxGolpeL) + " perdidos", text_color=color.white, bgcolor=hb, text_size=size.small)
@@ -1898,4 +1994,4 @@ if verCS and barstate.islast
 alertcondition(sigUpF, "Swing alcista", "Swing: señal ALCISTA (vela)")
 alertcondition(sigDnF, "Swing bajista", "Swing: señal BAJISTA (vela)")
 
-// ===== FIN del indicador v9.36 (esta linea es solo un marcador: si falta al copiar, no pasa nada) =====
+// ===== FIN del indicador v9.37 (esta linea es solo un marcador: si falta al copiar, no pasa nada) =====

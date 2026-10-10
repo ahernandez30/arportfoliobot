@@ -1,4 +1,4 @@
-"""'Swing — Vela Diaria/Semanal v9.36', translated from docs/swing_diario_semanal_v9_36.pine.
+"""'Swing — Vela Diaria/Semanal v9.37', translated from docs/swing_diario_semanal_v9_37.pine.
 
 The translation follows the script statement by statement and in the script's order; comments
 give the script's own names so the two can be read side by side. Where the plan's summary and the
@@ -13,12 +13,12 @@ Conventions shared with TradingView:
 - The end of a session and of a week come from the script's own New York Stock Exchange calendar
   (v9.36, rules in nyse_closed / nyse_early_close): a weekly ladder level changes at the close of the
   week's last trading day (Thursday when Friday is a holiday), and on early-close days (13:00) the
-  13:00 candle ends the session. On a daily chart every candle ends its session.
+  13:00 candle ends the session. On a daily chart every candle ends its session. A minutes ladder
+  level (30 minutes, 1 hour) ends every N minutes from 9:30 and at the end of the session (v9.37).
 
 What the site leaves out: the script's drawing options (arrows, labels, colours, table positions)
 and the ATR target/stop, which the script keeps switched off. The script's 4-hour ladder level
-(f_finTF "240") needs 4-hour candles, which the site does not offer yet; a level set to 1h reads
-the last closed hour like any other level, as the script does for timeframes f_finTF does not know.
+(f_finTF "240") needs 4-hour candles, which the site does not offer yet.
 """
 import math
 from dataclasses import dataclass, field, replace
@@ -33,7 +33,7 @@ from app.strategy.base import TIMEFRAME_SECONDS, InputDef, Strategy, StrategyDat
 NY = ZoneInfo("America/New_York")
 TYPES = ("LLENA", "FLECO", "ENGULFING", "RACHA")
 INTRADAY = ("1m", "5m", "15m", "30m", "1h")
-VERSION = "v9.36"
+VERSION = "v9.37"
 
 G_SIGNAL = "1 · Candle types (Tipos de vela)"
 G_FILTERS = "2 · Signal filters (Filtros)"
@@ -98,14 +98,20 @@ INPUTS: list[InputDef] = [
     InputDef("filtro2", "Level 2 on", "bool", False, G_LADDER),
     InputDef("tfS2", "Level 2 timeframe", "timeframe", "1D", G_LADDER),
     InputDef("filtro3", "Level 3 on", "bool", False, G_LADDER),
-    InputDef("tfS3", "Level 3 timeframe", "timeframe", "1h", G_LADDER,
-             help="The script's default is 4 hours, which the site does not offer yet."),
+    InputDef("tfS3", "Level 3 timeframe", "timeframe", "30m", G_LADDER),
     InputDef("maxPerdW", "Most LOSSES per level-1 (weekly) signal, then wait for the next (0 = off)", "int", 0,
              G_LADDER, 0, 1000),
     InputDef("cierraCambioW", "Normal mode: CLOSE opposite trades when level 1 (weekly) changes", "bool", False, G_LADDER),
     *_level_inputs(1, "a", "Weekly", "1W", (True, True, True, True, 85.0, 65.0, 4.0, 61.0, 3, 7)),
     *_level_inputs(2, "b", "Daily", "1D", (True, True, False, True, 85.0, 70.0, 4.0, 61.0, 2, 7)),
-    *_level_inputs(3, "c", "4 hours", "1h", (True, True, False, True, 70.0, 55.0, 8.0, 0.0, 2, 5)),
+    # v9.37: level 3 starts with the settings of the pegged TSLA 30m chart.
+    *_level_inputs(3, "c", "30 minutes", "30m", (False, True, True, True, 75.0, 55.0, 3.0, 61.0, 3, 5)),
+    InputDef("e3NoEng1", "No ENGULFING on the first candle of the session (9:30; minutes levels only)", "bool", False,
+             G_LEVEL.format("c", 3, "30 minutes")),
+    InputDef("e3MA", "Moving average of the level: buys only above, sells only below (0 = none)", "int", 0,
+             G_LEVEL.format("c", 3, "30 minutes"), 0, 500),
+    InputDef("e3Sigue", "Changes ONLY in favour of active levels 1 and 2 (like the 30-minute chart's signals)", "bool", True,
+             G_LEVEL.format("c", 3, "30 minutes")),
     # 4 · Modo NORMAL
     InputDef("objPct", "TARGET % (objetivo)", "float", 15.0, G_NORMAL, 0.1, 1000),
     InputDef("stopPct", "STOP %", "float", 13.0, G_NORMAL, 0.1, 100),
@@ -123,6 +129,12 @@ INPUTS: list[InputDef] = [
     InputDef("usarIntra", "Real path: look inside the candle for the true order", "bool", True, G_NORMAL),
     InputDef("tfIntra", "Real path timeframe", "timeframe", "1h", G_NORMAL,
              help="E.g. 1D on weekly, 1h on daily. Must not be above the chart's timeframe."),
+    InputDef("cestaN", "CESTA: close ALL open trades when their gain TOGETHER reaches % (0 = off)", "float", 0.0,
+             G_NORMAL, 0, 100000, help="Checked at each candle's close, on the trades that candle leaves open."),
+    InputDef("cestaNMide", "CESTA: how to measure the gain together", "choice", "Suma de todas", G_NORMAL,
+             options=("Suma de todas", "Media de las abiertas", "Repartido (suma / máx. abiertas)"),
+             help="Suma = sum of every open trade's %; Media = their average; Repartido = the sum divided by the most open."),
+    InputDef("cestaMin", "CESTA: only with at least N open", "int", 2, G_NORMAL, 1, 1000),
     # 5 · Señal a señal y basket
     InputDef("modoSenal", "SIGNAL TO SIGNAL: hold until the opposite signal", "bool", False, G_SS),
     InputDef("tpPctSS", "Take profit % (0 = none, opposite signal only)", "float", 0.0, G_SS, 0, 1000),
@@ -226,13 +238,19 @@ def level_settings(x: dict, n: int) -> dict:
             "mFl": x[f"e{n}Fl"], "cMinFl": x[f"e{n}FlM"], "cEng": x[f"e{n}En"], "nR": x[f"e{n}nR"], "nV": x[f"e{n}nV"]}
 
 
-def sig_x(lv: dict, b: Bar, p: Bar | None, ro1: int, ve1: int) -> tuple[bool, bool]:
+def sig_x(lv: dict, b: Bar, p: Bar | None, ro1: int, ve1: int, eb: bool = False) -> tuple[bool, bool]:
     """f_sigX (and f_sig): a level's signal for candle b after candle p. ro1 / ve1 are the red and
-    green candles in a row up to p."""
-    c = classify(b, p, lv["cLl"], lv["mFl"], lv["cMinFl"], lv["cEng"], lv["vL"], lv["vF"], lv["vE"])
+    green candles in a row up to p; eb blocks the ENGULFING on this candle."""
+    c = classify(b, p, lv["cLl"], lv["mFl"], lv["cMinFl"], lv["cEng"], lv["vL"], lv["vF"], lv["vE"], eng_bloq=eb)
     n_ro = ro1 + 1 if b.close < b.open else 0
     n_ve = ve1 + 1 if b.close > b.open else 0
     return c.up or (lv["uR"] and n_ro == lv["nR"]), c.dn or (lv["uR"] and n_ve == lv["nV"])
+
+
+def at_930(t: int) -> bool:
+    """The candle starts at 9:30 New York (the first of the regular session)."""
+    m = datetime.fromtimestamp(t, NY)
+    return m.hour * 60 + m.minute == 570
 
 
 def runs_in_a_row(bars: list[Bar]) -> tuple[list[int], list[int]]:
@@ -315,6 +333,12 @@ def ends_higher_candle(b: Bar, tf: str, level_tf: str) -> bool:
         return last and last_trading_day_of_week(session_moment(b, tf).date())
     if level_tf == "1D":
         return last
+    if level_tf in INTRADAY:
+        # v9.37: a minutes level ends every N minutes from 9:30, and at the end of the session.
+        start = datetime.fromtimestamp(b.time, NY)
+        end = start.hour * 60 + start.minute + TIMEFRAME_SECONDS[tf] // 60
+        size = TIMEFRAME_SECONDS[level_tf] // 60
+        return last or (570 < end < 960 and (end - 570) % size == 0)
     return False
 
 
@@ -598,6 +622,15 @@ class CreditSpreads:
         }
 
 
+def cesta_measure(x: dict, total: float, n: int) -> float:
+    """f_cestaMide (v9.37): the open trades' gain together."""
+    if x["cestaNMide"] == "Suma de todas":
+        return total
+    if x["cestaNMide"] == "Media de las abiertas":
+        return total / n if n > 0 else 0.0
+    return total / x["maxAbiertas"] if x["maxAbiertas"] > 0 else total
+
+
 # ---------- the strategy ----------
 
 
@@ -650,14 +683,23 @@ class SwingStrategy(Strategy):
                 reds, greens = runs_in_a_row(htf)
                 # f_sig on each higher candle, read by the chart one candle later ([1], lookahead_on).
                 st = lv["set"]
+                # v9.37: level 3's own options: no ENGULFING on the 9:30 candle (minutes levels), and a
+                # moving average of the level's candles (buys above, sells below).
+                eb_on = k == 3 and x["e3NoEng1"] and ltf in INTRADAY
+                ma_n = x["e3MA"] if k == 3 else 0
+                htf_ma = indicators.sma([h.close for h in htf], ma_n) if ma_n else []
                 sig = []
                 for j in range(len(htf)):
                     cj = classify(htf[j], htf[j - 1] if j else None, st["cLl"], st["mFl"], st["cMinFl"], st["cEng"],
-                                  st["vL"], st["vF"], st["vE"])
-                    sig.append((cj.up or (st["uR"] and reds[j] == st["nR"]),
-                                cj.dn or (st["uR"] and greens[j] == st["nV"])))
+                                  st["vL"], st["vF"], st["vE"], eng_bloq=eb_on and at_930(htf[j].time))
+                    up = cj.up or (st["uR"] and reds[j] == st["nR"])
+                    dn = cj.dn or (st["uR"] and greens[j] == st["nV"])
+                    if ma_n:
+                        up = up and htf_ma[j] is not None and htf[j].close > htf_ma[j]
+                        dn = dn and htf_ma[j] is not None and htf[j].close < htf_ma[j]
+                    sig.append((up, dn))
                 lv.update(htf=htf, reds=reds, greens=greens, sig=sig, idx=htf_index(bars, htf),
-                          k_o=None, k_h=None, k_l=None, k_at=None)
+                          k_o=None, k_h=None, k_l=None, k_at=None, k_t=None, eb_on=eb_on, ma_n=ma_n)
             levels.append(lv)
 
         # Moving averages and ADX.
@@ -686,6 +728,7 @@ class SwingStrategy(Strategy):
         n_up = n_dn = 0  # RACHA counters
         up_disp = dn_disp = False
         perd_w = 0
+        n_cestas = 0
         w1_reseteado = False
         prev_s1 = 0
         seg = {"dir": 0, "res": 0, "n": 0, "bloq": 0}
@@ -765,25 +808,51 @@ class SwingStrategy(Strategy):
                     lv["old"] = lv["sig"][k - 1]
                 new_period = k != lv["k_at"] or lv["k_o"] is None
                 if new_period:
-                    lv["k_o"], lv["k_h"], lv["k_l"], lv["k_at"] = b.open, b.high, b.low, k
+                    lv["k_o"], lv["k_h"], lv["k_l"], lv["k_at"], lv["k_t"] = b.open, b.high, b.low, k, b.time
                 else:
                     lv["k_h"], lv["k_l"] = max(lv["k_h"], b.high), min(lv["k_l"], b.low)
                 lv["new"] = new_period and i > 0  # ta.change(time(tf)) is na on the first candle
                 lv["fin"] = ends_higher_candle(b, tf, lv["tf"])
-                lv["up_c"], lv["dn_c"] = sig_x(lv["set"], Bar(b.time, lv["k_o"], lv["k_h"], lv["k_l"], b.close, 0.0),
-                                               lv["htf"][k - 1] if k >= 1 else None,
-                                               lv["reds"][k - 1] if k >= 1 else 0, lv["greens"][k - 1] if k >= 1 else 0)
+                up_c, dn_c = sig_x(lv["set"], Bar(b.time, lv["k_o"], lv["k_h"], lv["k_l"], b.close, 0.0),
+                                   lv["htf"][k - 1] if k >= 1 else None,
+                                   lv["reds"][k - 1] if k >= 1 else 0, lv["greens"][k - 1] if k >= 1 else 0,
+                                   eb=lv["eb_on"] and at_930(lv["k_t"]))
+                if lv["ma_n"]:
+                    # the level's average on the candle closing now: the N-1 before it, closed, and this close
+                    mn = lv["ma_n"]
+                    if mn == 1:
+                        ma_c = b.close
+                    elif k - (mn - 1) >= 0:
+                        ma_c = (sum(h.close for h in lv["htf"][k - mn + 1:k]) + b.close) / mn
+                    else:
+                        ma_c = None
+                    up_c = up_c and ma_c is not None and b.close > ma_c
+                    dn_c = dn_c and ma_c is not None and b.close < ma_c
+                lv["up_c"], lv["dn_c"] = up_c, dn_c
             # Each state persists until its timeframe flips; a buy and a sell together: the buy wins.
-            for lv in levels:
+            for lv in levels[:2]:
                 if lv["old"][1]:
                     lv["state"] = -1
                 if lv["old"][0]:
                     lv["state"] = 1
-            for lv in levels:
+            for lv in levels[:2]:
                 if lv["fin"] and lv["dn_c"]:
                     lv["state"] = -1
                 if lv["fin"] and lv["up_c"]:
                     lv["state"] = 1
+            # v9.37: level 3 is read once levels 1 and 2 are up to date; with e3Sigue its signal counts only
+            # if the active levels 1 and 2 do not contradict it.
+            l3, (q1, q2) = levels[2], levels[:2]
+            ok3_dn = not x["e3Sigue"] or all(not q["active"] or q["state"] <= 0 for q in (q1, q2))
+            ok3_up = not x["e3Sigue"] or all(not q["active"] or q["state"] >= 0 for q in (q1, q2))
+            if l3["old"][1] and ok3_dn:
+                l3["state"] = -1
+            if l3["old"][0] and ok3_up:
+                l3["state"] = 1
+            if l3["fin"] and l3["dn_c"] and ok3_dn:
+                l3["state"] = -1
+            if l3["fin"] and l3["up_c"] and ok3_up:
+                l3["state"] = 1
             l1 = levels[0]
             s1, a1 = l1["state"], l1["active"]
             # Most losses per weekly signal: the counter restarts once per signal (v9.35).
@@ -851,6 +920,24 @@ class SwingStrategy(Strategy):
             # ---------- normal mode: each signal its own trade ----------
             if not modo_senal and open_trades:
                 o_pct, s_pct = x["objPct"], x["stopPct"]
+                # CESTA (v9.37): the trades this candle leaves open (no target / stop, weekly change, opposite
+                # signal or candle count) and their gain together at the close; past the % they all close.
+                cesta_salta, cesta_sum, cesta_vivas = False, 0.0, 0
+                if x["cestaN"] > 0:
+                    for t in open_trades:
+                        if i > t.bar:
+                            e, d = t.entry, t.d
+                            tgt = e * (1 + o_pct / 100.0) if d == 1 else e * (1 - o_pct / 100.0)
+                            stp = e * (1 - s_pct / 100.0) if d == 1 else e * (1 + s_pct / 100.0)
+                            h, _ = hit_target_or_stop(d, tgt, stp, b, inside[i], intra_ok)
+                            cw = x["cierraCambioW"] and a1 and cambio_w1 and d == -s1
+                            cc = x["cierraContra"] and ((d == 1 and sig_dn) or (d == -1 and sig_up))
+                            if not (h != 0 or cw or cc or (i - t.bar) >= x["maxVelas"]):
+                                cesta_vivas += 1
+                                cesta_sum += move_pct(d, e, b.close)
+                    cesta_salta = (cesta_vivas >= x["cestaMin"]
+                                   and cesta_measure(x, cesta_sum, cesta_vivas) >= x["cestaN"])
+                    n_cestas += 1 if cesta_salta else 0
                 for k in range(len(open_trades) - 1, -1, -1):
                     t = open_trades[k]
                     e, d = t.entry, t.d
@@ -872,6 +959,9 @@ class SwingStrategy(Strategy):
                         if not res and x["cierraContra"] and ((d == 1 and sig_dn) or (d == -1 and sig_up)):
                             r_t = move_pct(d, e, b.close)
                             res, res_w, motivo, exit_price = True, 1 if r_t >= 0 else -1, "contra", b.close
+                        if not res and cesta_salta:
+                            r_t = move_pct(d, e, b.close)
+                            res, res_w, motivo, exit_price = True, 1 if r_t >= 0 else -1, "CESTA", b.close
                         if not res and (i - t.bar) >= x["maxVelas"]:
                             r_t = move_pct(d, e, b.close)
                             if x["cierraMercado"]:
@@ -1098,6 +1188,11 @@ class SwingStrategy(Strategy):
                 "entries": len(cst), "entry_times": [e[4] for e in cst]}
 
         n_up_open = sum(1 for t in open_trades if t.d == 1)
+        cesta_now = None
+        if x["cestaN"] > 0 and not modo_senal:
+            total = sum(move_pct(t.d, t.entry, bars[-1].close) for t in open_trades) if open_trades and bars else 0.0
+            cesta_now = {"pct": cesta_measure(x, total, len(open_trades)) if open_trades else None,
+                         "target": x["cestaN"], "closed": n_cestas}
         out = {
             "signals": signals,
             "preview": preview,
@@ -1113,7 +1208,7 @@ class SwingStrategy(Strategy):
             "results": tables(trades, entries, bars, closed, x) | {"candles_measured": n},
             "ladder": [{"tf": lv["tf"], "active": lv["active"], "state": lv["state"]} for lv in levels],
             "now": _now(x, now, levels, seg["bloq"], len(open_trades), len(cst)),
-            "open_now": {"longs": n_up_open, "shorts": len(open_trades) - n_up_open},
+            "open_now": {"longs": n_up_open, "shorts": len(open_trades) - n_up_open, "cesta": cesta_now},
             "intrabar": {"on": intra_ok, "tf": x["tfIntra"],
                          "covered_from": next((bars[i].time for i in range(closed) if inside[i]), None)},
             "ma": [{"time": bars[i].time, "value": ma[i]} for i in range(n) if ma[i] is not None] if ma_len else [],

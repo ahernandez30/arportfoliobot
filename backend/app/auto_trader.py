@@ -52,7 +52,7 @@ STALE_SECONDS = 300
 ENTRY_TRY_MINUTES = 15
 ACTIVE = ("waiting", "open", "floating")
 # The engine's exit reasons (the script's own names) as Account Manager reasons.
-REASONS = {"TP": "take_profit", "SL": "stop_loss", "SIG": "signal", "contra": "signal", "cambio W": "signal",
+REASONS = {"TP": "take_profit", "SL": "stop_loss", "SIG": "signal", "contra": "signal", "cambio W": "signal", "CESTA": "take_profit",
            "corte": "time", "HORA": "time"}
 REASON_WORDS = {"take_profit": "the strategy's target on the stock price", "stop_loss": "the strategy's stop on the stock price",
                 "signal": "the opposite signal", "time": "the strategy's time rule",

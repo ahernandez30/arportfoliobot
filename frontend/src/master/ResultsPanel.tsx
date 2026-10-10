@@ -1,6 +1,6 @@
 import { formatPct } from '../market/bars'
 import { formatMoney } from '../money'
-import type { CreditSpreads, Luck, Results, SpreadSide } from './types'
+import type { CreditSpreads, Luck, OpenCesta, Results, SpreadSide } from './types'
 
 const TYPE_LABEL: Record<string, string> = { LLENA: 'LLENA', FLECO: 'FLECO', ENGULFING: 'ENGULF', RACHA: 'RACHA' }
 
@@ -28,7 +28,7 @@ export function ResultsPanel({ r, ruleText, now, openNow }: {
   r: Results
   ruleText: string
   now?: string[]
-  openNow?: { longs: number; shorts: number } | null
+  openNow?: { longs: number; shorts: number; cesta?: OpenCesta | null } | null
 }) {
   const rows = [...r.by_type, { type: 'TOTAL', ...r.total, gap_avg: null, gap_wins: 0, gap_n: 0, floating_avg: null }]
   const cap = r.capital
@@ -38,6 +38,7 @@ export function ResultsPanel({ r, ruleText, now, openNow }: {
         <p className={now.length ? 'msg msg-warn' : 'msg msg-ok'}>
           Now: {now.length ? now.join(' · ') : 'free, nothing is stopping new signals'}
           {openNow && r.mode === 'target_stop' && <> · open: <span className="num">{openNow.longs}</span> long, <span className="num">{openNow.shorts}</span> short</>}
+          {openNow?.cesta && r.mode === 'target_stop' && <> · CESTA {openNow.cesta.pct === null ? 'nothing open' : <span className="num">{formatPct(openNow.cesta.pct)}</span>} of <span className="num">{openNow.cesta.target}%</span>, <span className="num">{openNow.cesta.closed}</span> closed</>}
         </p>
       )}
       <div className="table-wrap">

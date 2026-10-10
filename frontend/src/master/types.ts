@@ -129,7 +129,8 @@ export type RunResult = {
   ladder: { tf: Timeframe; active: boolean; state: number }[]
   /** What is stopping new signals right now (the script's “Ahora” row). */
   now: string[]
-  open_now: { longs: number; shorts: number }
+  /** cesta: the normal-mode CESTA (v9.37), null when off: the open trades' gain together now, its %, and how many closed. */
+  open_now: { longs: number; shorts: number; cesta?: OpenCesta | null }
   intrabar: { on: boolean; tf: Timeframe; covered_from: number | null }
   ma: { time: number; value: number }[]
   luck?: Luck
@@ -168,3 +169,5 @@ export type ParityCheck = {
     matched: string[]
   }
 }
+
+export type OpenCesta = { pct: number | null; target: number; closed: number }

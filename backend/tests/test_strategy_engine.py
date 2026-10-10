@@ -1,5 +1,5 @@
 """The strategy engine against hand-worked candle sequences (plan rule 5: strategy logic gets the
-most tests). Names refer to docs/swing_diario_semanal_v9_36.pine."""
+most tests). Names refer to docs/swing_diario_semanal_v9_37.pine."""
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -601,7 +601,11 @@ def test_inputs_are_checked():
 def test_script_defaults():
     x = S.defaults()
     assert (x["usarRacha"], x["nRojas"], x["nVerdes"], x["maxAbiertas"], x["normalCuenta"]) == (True, 3, 3, 10, "Repartido")
-    assert (x["e1nV"], x["e2Fl"], x["e3Ll"], x["capIni"], x["csAncho"]) == (7, 70, 70, 10000, 1.33)
+    assert (x["e1nV"], x["e2Fl"], x["capIni"], x["csAncho"]) == (7, 70, 10000, 1.33)
+    # v9.37: level 3 is 30 minutes and starts with the pegged TSLA 30m settings; CESTA is off.
+    assert (x["tfS3"], x["e3L"], x["e3E"], x["e3Ll"], x["e3Fl"], x["e3FlM"], x["e3En"], x["e3nR"], x["e3nV"]) == \
+        ("30m", False, True, 75, 55, 3, 61, 3, 5)
+    assert (x["e3NoEng1"], x["e3MA"], x["e3Sigue"], x["cestaN"], x["cestaMin"]) == (False, 0, True, 0, 2)
 
 
 def test_days_follow_new_york_time_across_the_clock_change():
@@ -669,3 +673,81 @@ def test_thirty_minute_candles():
     out = aggregate(fifteen, "30m")
     assert [b.time for b in out] == [base, base + 1800]
     assert (out[0].open, out[0].high, out[0].low, out[0].close, out[0].volume) == (100, 102, 99, 101.5, 20)
+
+
+# ---------- v9.37: level 3 on 30 minutes, and the CESTA of normal mode ----------
+
+
+def test_cesta_closes_every_open_trade_when_their_gain_together_reaches_the_percent():
+    # Longs at 110 and 120; candle 3 closes at 125: +13.6% and +4.2%, together +17.8%. Candle 3 is
+    # also a buy, which the CESTA makes room for.
+    bars = [flat(0), green_full(1, 100), green_full(2, 110), green_full(3, 115)]
+    gain = (125 - 110) / 110 * 100 + (125 - 120) / 120 * 100
+    out = run(bars, usarIntra=False, maxAbiertas=2, cestaN=15.0)
+    assert [(t["reason"], t["exit_i"]) for t in out["trades"]] == [("CESTA", 3), ("CESTA", 3)]
+    assert sum(t["ret_pct"] for t in out["trades"]) == pytest.approx(gain)
+    assert [s["i"] for s in out["signals"]] == [1, 2, 3] and out["open_trades"][0]["entry"] == 125
+    assert out["open_now"]["cesta"] == {"pct": pytest.approx(0.0), "target": 15.0, "closed": 1}
+    # Below the %, too few open, or measured as the average: nothing closes, and the full book stops candle 3.
+    for opt in ({"cestaN": 18.0}, {"cestaN": 15.0, "cestaMin": 3}, {"cestaN": 15.0, "cestaNMide": "Media de las abiertas"}):
+        o = run(bars, usarIntra=False, maxAbiertas=2, **opt)
+        assert o["trades"] == [] and [s["i"] for s in o["signals"]] == [1, 2], opt
+    o = run(bars, usarIntra=False, maxAbiertas=2, cestaN=8.0, cestaNMide="Media de las abiertas")
+    assert [t["reason"] for t in o["trades"]] == ["CESTA", "CESTA"]
+    o = run(bars, usarIntra=False, maxAbiertas=2, cestaN=8.0, cestaNMide="Repartido (suma / máx. abiertas)")
+    assert [t["reason"] for t in o["trades"]] == ["CESTA", "CESTA"]
+    assert run(bars, usarIntra=False, maxAbiertas=2)["open_now"]["cesta"] is None  # off
+
+
+def test_cesta_leaves_out_trades_the_candle_closes_by_their_own_rules():
+    # The long from 110 reaches its target (126.5) on candle 3: a TP. The CESTA only sees the long from
+    # 120 (+5%), so 12% is not reached; counting the TP trade at the close (+14.5%) it would have been.
+    bars = [flat(0), green_full(1, 100), green_full(2, 110), bar(3, 120, 127, 119.5, 126)]
+    out = run(bars, usarIntra=False, cestaN=12.0, cestaMin=1)
+    assert [t["reason"] for t in out["trades"]] == ["TP"] and out["open_trades"][0]["entry"] == 120
+    assert out["open_now"]["cesta"] == {"pct": pytest.approx(5.0), "target": 12.0, "closed": 0}
+
+
+def _ny(d: int, hh: int, mm: int) -> int:
+    return int(datetime(2024, 1, d, hh, mm, tzinfo=NY).timestamp())
+
+
+def _level3(h0: Bar, prev: Bar | None = None, weekly_sell: bool = False, **changes):
+    """A 15-minute chart on Tuesday 9 January 2024 at 10:00 and 10:15, under the 30-minute candle of
+    9:30 (h0) and its doji of 10:00; the weekly level is a SELL from the week before, or nothing."""
+    halves = ([prev] if prev else []) + [h0, Bar(_ny(9, 10, 0), 110, 110.5, 109.5, 110, 1)]
+    week0 = bar(0, 100, 100.5, 89.5, 90) if weekly_sell else flat(0)
+    weeks = [week0, flat(7, 110)]
+    chart = [Bar(_ny(9, 10, 0), 110, 110.5, 109.5, 110, 1), Bar(_ny(9, 10, 15), 110, 110.5, 109.5, 110, 1)]
+    out = run(chart, tf="15m", usarIntra=False, usarEscalera=True, filtro3=True,
+              other={"1W": weeks, "30m": halves}, **changes)
+    return out["ladder"][2]
+
+
+def test_level_3_reads_the_30_minute_candle_with_its_own_settings():
+    green = Bar(_ny(9, 9, 30), 100, 110.5, 99.5, 110, 1)  # LLENA up: level 3 has LLENA off by default
+    assert _level3(green)["state"] == 0
+    assert _level3(green, e3L=True) == {"tf": "30m", "active": True, "state": 1}
+    # Only in favour of the active levels 1 and 2: a weekly SELL keeps the 30-minute BUY out.
+    assert _level3(green, weekly_sell=True, e3L=True)["state"] == 0
+    assert _level3(green, weekly_sell=True, e3L=True, e3Sigue=False)["state"] == 1
+    # Its own moving average: the 30-minute BUY needs a close above it (no average yet -> no signal).
+    assert _level3(green, e3L=True, e3MA=2)["state"] == 0
+
+
+def test_level_3_can_skip_the_engulfing_of_the_930_candle():
+    prev = Bar(_ny(8, 15, 30), 100, 101, 97, 98, 1)  # red, body 2
+    eng = Bar(_ny(9, 9, 30), 98, 101.5, 97.5, 101, 1)  # green ENGULFING at 9:30
+    assert _level3(eng, prev)["state"] == 1
+    assert _level3(eng, prev, e3NoEng1=True)["state"] == 0
+
+
+def test_minutes_levels_end_every_n_minutes_from_930():
+    from app.strategy.swing import ends_higher_candle
+
+    def ends(hh, mm, level, tf="15m"):
+        return ends_higher_candle(Bar(_ny(9, hh, mm), 1, 1, 1, 1, 1), tf, level)
+
+    assert ends(9, 45, "30m") and not ends(9, 30, "30m") and ends(10, 15, "30m")
+    assert ends(10, 15, "1h") and not ends(9, 45, "1h") and ends(15, 45, "1h")  # 16:00 ends the session
+    assert ends(9, 59, "30m", tf="1m") and not ends(9, 58, "30m", tf="1m")
