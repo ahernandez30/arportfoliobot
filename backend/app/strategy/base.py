@@ -28,6 +28,8 @@ class InputDef:
     max: float | None = None
     options: tuple = ()
     help: str = ""
+    # Not offered on the site: always at its default (Rafa, 2026-10-10: groups 8 and 9).
+    hidden: bool = False
 
     def as_dict(self) -> dict:
         d = asdict(self)
@@ -80,9 +82,10 @@ class InputDef:
 
 def check_inputs(defs: list[InputDef], raw: dict | None) -> dict:
     """All inputs in their proper types: given values checked, missing ones at their defaults.
-    Unknown keys are dropped, so settings saved for an older version still load."""
+    Unknown keys are dropped, so settings saved for an older version still load; hidden inputs
+    always take their defaults."""
     raw = raw or {}
-    return {d.key: d.check(raw[d.key]) if d.key in raw else d.default for d in defs}
+    return {d.key: d.check(raw[d.key]) if d.key in raw and not d.hidden else d.default for d in defs}
 
 
 @dataclass

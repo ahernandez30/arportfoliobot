@@ -21,7 +21,7 @@ and the ATR target/stop, which the script keeps switched off. The script's 4-hou
 the last closed hour like any other level, as the script does for timeframes f_finTF does not know.
 """
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -170,6 +170,9 @@ INPUTS: list[InputDef] = [
     InputDef("adxUmbral", "ADX level", "float", 25.0, G_MA, 0, 100),
     InputDef("adxLen", "ADX period", "int", 14, G_MA, 1, 500),
 ]
+# Groups 8 and 9 are not offered on the site (Rafa, 2026-10-10): they stay at the script's defaults,
+# so the credit-spread statistics use the default rows and no moving-average or ADX filter applies.
+INPUTS = [replace(d, hidden=True) if d.group in (G_CS, G_MA) else d for d in INPUTS]
 
 
 # ---------- candle measurements and types (la señal, and f_sig / f_sigX) ----------

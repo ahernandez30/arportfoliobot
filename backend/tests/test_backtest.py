@@ -299,3 +299,12 @@ def test_runs_are_private(md, rafa):
     assert other.get("/api/backtest/runs").json() == []
     assert other.get(f"/api/backtest/runs/{run['id']}").status_code == 404
     assert other.delete(f"/api/backtest/runs/{run['id']}").status_code == 404
+
+
+def test_groups_8_and_9_are_hidden_and_stay_at_their_defaults():
+    from app.strategy.base import check_inputs
+    from app.strategy.swing import G_CS, G_MA
+    hidden = {d.key for d in S.inputs if d.hidden}
+    assert hidden == {d.key for d in S.inputs if d.group in (G_CS, G_MA)} and "maCual" in hidden and "csAncho" in hidden
+    x = check_inputs(S.inputs, {"maCual": "MA1", "usarADX": True, "csAncho": 5.0, "objPct": 7.0})
+    assert x["maCual"] == "Ninguna" and x["usarADX"] is False and x["csAncho"] == 1.33 and x["objPct"] == 7.0

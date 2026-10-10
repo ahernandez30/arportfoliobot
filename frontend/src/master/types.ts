@@ -14,6 +14,8 @@ export type InputDef = {
   max: number | null
   options: string[]
   help: string
+  /** Not offered on the site: always at its default. */
+  hidden?: boolean
 }
 
 export type StrategyDef = { id: string; name: string; version: string; inputs: InputDef[] }

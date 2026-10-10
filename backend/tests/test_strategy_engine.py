@@ -44,6 +44,8 @@ def run(bars, tf="1D", closed=None, luck=False, other=None, **changes):
     """The engine with the script's defaults, except the RACHA, which is off unless a test turns it
     on, so the hand-made sequences below are only the candles they mean to be."""
     inputs = check_inputs(INPUTS, {"usarRacha": False} | changes)
+    # The engine still follows the script's groups 8 and 9, which the site hides at their defaults.
+    inputs |= {d.key: d.check(changes[d.key]) for d in INPUTS if d.hidden and d.key in changes}
     data = StrategyData("TEST", tf, bars, len(bars) if closed is None else closed, other or {})
     return S.run(data, inputs, luck=luck)
 
@@ -589,7 +591,7 @@ def test_inputs_are_checked():
     with pytest.raises(InputError, match="HH:MM"):
         check_inputs(INPUTS, {"horaCierreSS": "25:00"})
     with pytest.raises(InputError, match="choose one"):
-        check_inputs(INPUTS, {"maCual": "MA9"})
+        check_inputs(INPUTS, {"dirOper": "Neither"})
     assert check_inputs(INPUTS, {"horaCierreSS": "15:30"})["horaCierreSS"] == "15:30"
     # Settings saved under v9.8 still load: the old shared ladder thresholds are simply dropped.
     x = check_inputs(INPUTS, {"cuerpoLlenaW": 70.0, "objPct": 9.0})

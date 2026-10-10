@@ -92,14 +92,15 @@ export default function InputsPanel({ defs, inputs, pegged, onChange }: {
   pegged: Inputs | null
   onChange: (key: string, value: InputValue) => void
 }) {
-  const groups = [...new Set(defs.map((d) => d.group))]
+  const shown = defs.filter((d) => !d.hidden)
+  const groups = [...new Set(shown.map((d) => d.group))]
   return (
     <div className="inputs-panel">
       {groups.map((g, gi) => (
         <details key={g} open={gi === 0}>
           <summary>{g}</summary>
           <div className="inputs-grid">
-            {defs.filter((d) => d.group === g).map((d) => (
+            {shown.filter((d) => d.group === g).map((d) => (
               <Field key={d.key} def={d} value={inputs[d.key]} changed={!!pegged && pegged[d.key] !== inputs[d.key]}
                 onChange={(v) => onChange(d.key, v)} />
             ))}
