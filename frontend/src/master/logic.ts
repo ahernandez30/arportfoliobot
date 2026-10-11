@@ -53,6 +53,11 @@ export function markers(r: RunResult, c: MarkerColors, opts: { exits: boolean; b
     out.push({ time: s.time as Time, position: s.dir === 1 ? 'belowBar' : 'aboveBar', shape: s.dir === 1 ? 'arrowUp' : 'arrowDown',
       color: `${s.dir === 1 ? c.buy : c.sell}66`, text: `${s.dir === 1 ? 'BUY' : 'SELL'}? (forming)` })
   }
+  // v9.38: where the HIJO (30 minutes) opened; the next 30 minutes are the NIETO's window.
+  for (const h of r.hijo?.signals ?? []) {
+    out.push({ time: h.time as Time, position: h.dir === 1 ? 'belowBar' : 'aboveBar', shape: 'square', size: 0.7,
+      color: `${h.dir === 1 ? c.buy : c.sell}99`, text: 'H' })
+  }
   if (opts.exits) {
     for (const t of r.trades) {
       out.push({ time: t.exit_time as Time, position: 'inBar', shape: 'circle', size: 0.6,
@@ -75,7 +80,10 @@ export function refreshMs(tf: Timeframe): number {
 }
 
 /** The trade rule in words, for under the results tables. */
-export function ruleText(i: Inputs): string {
+export function ruleText(i: Inputs, hijo?: { count: number; open: number } | null): string {
+  if (hijo) {
+    return `HIJO → NIETO · ${hijo.count} HIJO signals (${hijo.open} HIJO trades open) · NIETO target ${i.objPct}% / stop ${i.stopPct}% · closes after ${i.maxVelas} candles`
+  }
   if (i.modoSenal) {
     const tp = i.tpPctSS as number
     const sl = i.slPctSS as number

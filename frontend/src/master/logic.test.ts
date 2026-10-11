@@ -48,6 +48,10 @@ describe('markers', () => {
     expect(m[1]).toMatchObject({ position: 'aboveBar', color: '#F5B83D', text: 'SELL FL' })
     expect(m[2].text).toContain('forming')
   })
+  it('marks the HIJO signals', () => {
+    const h = { ...r, hijo: { signals: [{ i: 0, time: 100, dir: -1, price: 1 }], count: 1, open: 1, losses_w: 0, window: null } } as RunResult
+    expect(markers(h, colors, { exits: false, blocked: false })[0]).toMatchObject({ time: 100, position: 'aboveBar', text: 'H' })
+  })
   it('adds exits and blocked signals when asked', () => {
     expect(markers(r, colors, { exits: true, blocked: true })).toHaveLength(5)
   })

@@ -133,6 +133,10 @@ export type RunResult = {
   open_now: { longs: number; shorts: number; cesta?: OpenCesta | null }
   intrabar: { on: boolean; tf: Timeframe; covered_from: number | null }
   ma: { time: number; value: number }[]
+  /** v9.38 HIJO -> NIETO: the HIJO's opening signals (each starts a 30-minute window); null when off. */
+  hijo?: HijoInfo | null
+  /** The settings the engine really used (HIJO -> NIETO replaces some). */
+  inputs_used?: Inputs
   luck?: Luck
   credit_spreads?: CreditSpreads
 }
@@ -171,3 +175,11 @@ export type ParityCheck = {
 }
 
 export type OpenCesta = { pct: number | null; target: number; closed: number }
+
+export type HijoInfo = {
+  signals: { i: number; time: number; dir: 1 | -1; price: number }[]
+  count: number
+  open: number
+  losses_w: number
+  window: { dir: 1 | -1; until: number } | null
+}

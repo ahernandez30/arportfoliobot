@@ -60,7 +60,8 @@ def run(strategy: Strategy, data: StrategyData, inputs: dict, setup: Setup, hist
     out = strategy.run(data, inputs, luck=True, luck_from=start_ts)
     closed, bars = data.closed, data.bars
     trades = [t for t in out["trades"] if start_ts is None or t["entry_time"] >= start_ts]
-    results = stats.script_results(out["trades"], out.get("entries", []), bars, closed, inputs, start_ts)
+    results = stats.script_results(out["trades"], out.get("entries", []), bars, closed, out.get("inputs_used", inputs),
+                                   start_ts)
 
     # Stock price, fixed dollars per entry.
     stock = [stats.Outcome(t["entry_time"], t["exit_time"], setup.stock_dollars * t.get("entries", 1) * t["ret_pct"] / 100.0,

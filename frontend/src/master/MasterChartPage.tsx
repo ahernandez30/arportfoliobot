@@ -267,7 +267,7 @@ export default function MasterChartPage() {
                 <button key={k} type="button" aria-pressed={tab === k} onClick={() => ((k === 'luck' || k === 'spreads') && !luck ? void runLuck(k) : setTab(k))}>{l}</button>
               ))}
             </div>
-            {tab === 'results' && result && <ResultsPanel r={result.results} ruleText={ruleText(state.inputs)} now={result.now} openNow={result.open_now} />}
+            {tab === 'results' && result && <ResultsPanel r={result.results} ruleText={ruleText(result.inputs_used ?? state.inputs, result.hijo)} now={result.now} openNow={result.open_now} />}
             {tab === 'luck' && (luck ? <LuckPanel luck={luck} /> : (
               <div className="actions">
                 <button className="btn btn-small btn-primary" onClick={() => void runLuck()}>Run the luck test with these settings</button>

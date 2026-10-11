@@ -1,4 +1,4 @@
-"""'Swing — Vela Diaria/Semanal v9.37', translated from docs/swing_diario_semanal_v9_37.pine.
+"""'Swing — Vela Diaria/Semanal v9.38', translated from docs/swing_diario_semanal_v9_38.pine.
 
 The translation follows the script statement by statement and in the script's order; comments
 give the script's own names so the two can be read side by side. Where the plan's summary and the
@@ -15,6 +15,10 @@ Conventions shared with TradingView:
   week's last trading day (Thursday when Friday is a holiday), and on early-close days (13:00) the
   13:00 candle ends the session. On a daily chart every candle ends its session. A minutes ladder
   level (30 minutes, 1 hour) ends every N minutes from 9:30 and at the end of the session (v9.37).
+- HIJO -> NIETO (v9.38, group 10): on charts below 30 minutes, a 30-minute signal (the HIJO) runs its own
+  trades inside the engine; each signal it really opens starts a 30-minute window in which this chart (the
+  NIETO, made for 5 minutes) may open only in that direction. effective_inputs gives the settings the
+  NIETO then really uses.
 
 What the site leaves out: the script's drawing options (arrows, labels, colours, table positions)
 and the ATR target/stop, which the script keeps switched off. The script's 4-hour ladder level
@@ -33,7 +37,7 @@ from app.strategy.base import TIMEFRAME_SECONDS, InputDef, Strategy, StrategyDat
 NY = ZoneInfo("America/New_York")
 TYPES = ("LLENA", "FLECO", "ENGULFING", "RACHA")
 INTRADAY = ("1m", "5m", "15m", "30m", "1h")
-VERSION = "v9.37"
+VERSION = "v9.38"
 
 G_SIGNAL = "1 · Candle types (Tipos de vela)"
 G_FILTERS = "2 · Signal filters (Filtros)"
@@ -45,6 +49,9 @@ G_CAP = "6 · Capital (stock)"
 G_OPEN = "7 · Opening window (Apertura)"
 G_CS = "8 · Credit spreads (statistics)"
 G_MA = "9 · Moving average and ADX (rarely used)"
+G_HN = "10 · HIJO 30 minutes → NIETO (this chart)"
+G_HIJO = "10a · HIJO: the 30-minute signal and its own trades"
+HIJO_TF = "30m"
 
 
 def _level_inputs(n: int, letter: str, name: str, tf: str, ll: tuple) -> list[InputDef]:
@@ -154,6 +161,37 @@ INPUTS: list[InputDef] = [
     InputDef("soloApertura", "Only signals INSIDE the opening window", "bool", False, G_OPEN),
     InputDef("sesApertura", "Opening window (New York)", "choice", "0930-1100", G_OPEN,
              options=("0930-1000", "0930-1030", "0930-1100", "0930-1130", "0930-1200", "0930-1600")),
+    # 10 · HIJO -> NIETO (v9.38)
+    InputDef("hijoNieto", "HIJO → NIETO: this chart only opens in the 30 minutes after a HIJO signal, in its direction",
+             "bool", False, G_HN, help="Charts below 30 minutes only (made for 5 minutes). The ladder (group 3) does not count."),
+    InputDef("nietoEstudio", "NIETO with the 30-minute candle rules (LLENA 70, FLECO 50/3, ENGULF 55 not at 9:30, "
+             "RACHA 3/5, MA 8; no caps)", "bool", True, G_HN,
+             help="On: ignores groups 1, 2, 4 (except target, stop and cut), 5 and 9."),
+    InputDef("nietoObj", "NIETO: TARGET %", "float", 4.0, G_HN, 0.1, 1000),
+    InputDef("nietoStop", "NIETO: STOP %", "float", 4.0, G_HN, 0.1, 100),
+    InputDef("nietoDias", "NIETO: close at market after N market days (1 day = 6.5 hours; 0 = never)", "float", 5.0,
+             G_HN, 0, 1000),
+    InputDef("nieto1a", "NIETO: only the 1st entry per HIJO signal", "bool", False, G_HN),
+    InputDef("nietoDaily", "NIETO: only in favour of the DAILY bias (ladder level 2 settings)", "bool", False, G_HN),
+    InputDef("hL", "LLENA", "bool", True, G_HIJO),
+    InputDef("hF", "FLECO", "bool", True, G_HIJO),
+    InputDef("hE", "ENGULFING", "bool", True, G_HIJO),
+    InputDef("hR", "RACHA", "bool", True, G_HIJO),
+    InputDef("hLl", "LLENA: body ≥ %", "float", 70.0, G_HIJO, 1, 100),
+    InputDef("hFl", "FLECO: wick ≥ %", "float", 50.0, G_HIJO, 1, 100),
+    InputDef("hFlM", "FLECO: minimum body %", "float", 3.0, G_HIJO, 0, 90),
+    InputDef("hEn", "ENGULFING: body ≥ % (0 = any size)", "float", 55.0, G_HIJO, 0, 100),
+    InputDef("hnR", "RACHA: N red candles → buy", "int", 3, G_HIJO, 1, 20),
+    InputDef("hnV", "RACHA: N green candles → sell", "int", 5, G_HIJO, 1, 20),
+    InputDef("hNoEng1", "No ENGULFING on the 9:30 candle", "bool", True, G_HIJO),
+    InputDef("hMA", "Moving average: buys only above, sells only below (0 = none)", "int", 8, G_HIJO, 0, 500),
+    InputDef("hSoloW", "Only in favour of ladder level 1 (Weekly)", "bool", True, G_HIJO),
+    InputDef("hObj", "HIJO trades: TARGET %", "float", 15.0, G_HIJO, 0.1, 1000),
+    InputDef("hStop", "HIJO trades: STOP %", "float", 13.0, G_HIJO, 0.1, 100),
+    InputDef("hVelas", "HIJO trades: close after N 30-minute candles", "int", 800, G_HIJO, 1, 100000),
+    InputDef("hMax", "HIJO: most trades open at once (0 = no limit)", "int", 30, G_HIJO, 0, 1000),
+    InputDef("hPerdW", "HIJO: most LOSSES per weekly signal, then wait for the next (0 = off)", "int", 3, G_HIJO, 0, 1000),
+    InputDef("hContra", "HIJO: the opposite signal closes its trades", "bool", True, G_HIJO),
     # 9 · Credit spreads (estadística)
     InputDef("csAncho", "Spread width, % of price", "float", 1.33, G_CS, 0.05, 100,
              help="$5 wide with TSLA at 375 ≈ 1.33."),
@@ -631,6 +669,45 @@ def cesta_measure(x: dict, total: float, n: int) -> float:
     return total / x["maxAbiertas"] if x["maxAbiertas"] > 0 else total
 
 
+# ---------- HIJO -> NIETO (v9.38) ----------
+
+
+def hijo_on(x: dict, timeframe: str) -> bool:
+    """Group 10 applies only on charts below the HIJO's 30 minutes."""
+    return bool(x.get("hijoNieto")) and TIMEFRAME_SECONDS[timeframe] < TIMEFRAME_SECONDS[HIJO_TF]
+
+
+def effective_inputs(inputs: dict, timeframe: str) -> dict:
+    """The settings the script really uses: with HIJO -> NIETO on, the NIETO's target, stop and cut
+    replace group 4's, and with "NIETO with the 30-minute candle rules" its fixed rules replace groups
+    1, 2, 4, 5 and 9 (script v9.38, as v9.30 of the other copy)."""
+    x = dict(inputs)
+    if not hijo_on(x, timeframe):
+        return x
+    dias = x["nietoDias"]
+    x.update(objPct=x["nietoObj"], stopPct=x["nietoStop"], cierraMercado=True,
+             maxVelas=max(1, round(dias * 390 * 60 / TIMEFRAME_SECONDS[timeframe])) if dias > 0 else 1_000_000)
+    if x["nietoEstudio"]:
+        x.update(verLlena=True, cuerpoLlena=70.0, verFleco=True, mechaFleco=50.0, cuerpoMinFleco=3.0, verEngulf=True,
+                 cuerpoEngulf=55.0, noEngPrimera=True, usarRacha=True, nRojas=3, nVerdes=5, rachaFleco=False,
+                 usarContinua=False, maxTradesSesion=0, ganSeguidas=0, perSeguidas=0, maxPerdW=0, cierraCambioW=False,
+                 unaVez=False, maxAbiertas=0, cierraContra=False, cestaN=0.0, modoSenal=False, soloApertura=False,
+                 maCual="MA1", maLen1=8, usarADX=False)
+    return x
+
+
+def hijo_hit(d: int, tgt: float, stp: float, b: Bar) -> int:
+    """f_hitH: the HIJO's own trades on the chart's candles. Opening past the target wins, then the
+    stop (open or low/high) before the target."""
+    if d == 1:
+        return 1 if b.open >= tgt else (-1 if (b.open <= stp or b.low <= stp) else (1 if b.high >= tgt else 0))
+    return 1 if b.open <= tgt else (-1 if (b.open >= stp or b.high >= stp) else (1 if b.low <= tgt else 0))
+
+
+def session_close_min(d: date) -> int:
+    return 780 if nyse_early_close(d) else 960
+
+
 # ---------- the strategy ----------
 
 
@@ -645,6 +722,9 @@ class SwingStrategy(Strategy):
     def needs(self, timeframe: str, inputs: dict) -> set[str]:
         chart_sec = TIMEFRAME_SECONDS[timeframe]
         out: set[str] = set()
+        if hijo_on(inputs, timeframe):
+            # the HIJO's 30-minute candles, and levels 1 and 2 for its weekly filter and the daily option
+            out |= {HIJO_TF, inputs["tfS1"], inputs["tfS2"]}
         if inputs["usarIntra"] and TIMEFRAME_SECONDS[inputs["tfIntra"]] <= chart_sec and inputs["tfIntra"] != timeframe:
             out.add(inputs["tfIntra"])
         if inputs["usarEscalera"]:
@@ -656,8 +736,9 @@ class SwingStrategy(Strategy):
 
     def run(self, data: StrategyData, inputs: dict, *, luck: bool = False,  # noqa: C901 (mirrors the script)
             luck_from: int | None = None) -> dict:
-        x = inputs
         bars, tf = data.bars, data.timeframe
+        x = effective_inputs(inputs, tf)
+        hn = hijo_on(x, tf)
         n = len(bars)
         closed = min(data.closed, n)
         chart_sec = TIMEFRAME_SECONDS[tf]
@@ -672,13 +753,16 @@ class SwingStrategy(Strategy):
             inside = [[] for _ in bars]
 
         # Ladder: three levels, each a higher timeframe with its own settings. A level counts only
-        # if its timeframe is strictly higher than the chart's.
+        # if its timeframe is strictly higher than the chart's. With HIJO -> NIETO, levels 1 and 2 are
+        # followed even when the ladder is off (the HIJO's weekly filter, the NIETO's daily option).
         levels = []
         for k in (1, 2, 3):
             ltf = x[f"tfS{k}"]
-            active = x["usarEscalera"] and x[f"filtro{k}"] and TIMEFRAME_SECONDS[ltf] > chart_sec
-            lv = {"tf": ltf, "active": active, "state": 0, "set": level_settings(x, k)}
-            if active:
+            higher = TIMEFRAME_SECONDS[ltf] > chart_sec
+            active = x["usarEscalera"] and x[f"filtro{k}"] and higher
+            track = active or (hn and k in (1, 2) and higher)
+            lv = {"tf": ltf, "active": active, "track": track, "state": 0, "set": level_settings(x, k)}
+            if track:
                 htf = data.other.get(ltf, [])
                 reds, greens = runs_in_a_row(htf)
                 # f_sig on each higher candle, read by the chart one candle later ([1], lookahead_on).
@@ -701,6 +785,21 @@ class SwingStrategy(Strategy):
                 lv.update(htf=htf, reds=reds, greens=greens, sig=sig, idx=htf_index(bars, htf),
                           k_o=None, k_h=None, k_l=None, k_at=None, k_t=None, eb_on=eb_on, ma_n=ma_n)
             levels.append(lv)
+
+        # HIJO (v9.38): the 30-minute signal with its own trades, followed on this chart's candles.
+        hj = None
+        if hn:
+            hb = data.other.get(HIJO_TF, [])
+            h_reds, h_greens = runs_in_a_row(hb)
+            hj = {"htf": hb, "reds": h_reds, "greens": h_greens, "idx": htf_index(bars, hb),
+                  "set": {"vL": x["hL"], "vF": x["hF"], "vE": x["hE"], "uR": x["hR"], "cLl": x["hLl"], "mFl": x["hFl"],
+                          "cMinFl": x["hFlM"], "cEng": x["hEn"], "nR": x["hnR"], "nV": x["hnV"]},
+                  "k_o": None, "k_h": None, "k_l": None, "k_at": None, "k_t": None}
+        h_trades: list[list] = []  # [entry, direction, its 30-minute candle number]
+        h30 = h_perd_w = h_n = 0
+        vent_dir, vent_end, vent_bar, vent_used = 0, 0, -1, False
+        vent_ok = False
+        hijo_signals: list[dict] = []
 
         # Moving averages and ADX.
         closes = [b.close for b in bars]
@@ -801,7 +900,7 @@ class SwingStrategy(Strategy):
                 # the next one. fin/up_c/dn_c: this chart candle ends the higher candle, and that
                 # candle's own signal, built from the chart's candles (v9.30).
                 lv.update(old=(False, False), new=False, fin=False, up_c=False, dn_c=False)
-                if not lv["active"]:
+                if not lv["track"]:
                     continue
                 k = lv["idx"][i]
                 if k >= 1:
@@ -813,6 +912,8 @@ class SwingStrategy(Strategy):
                     lv["k_h"], lv["k_l"] = max(lv["k_h"], b.high), min(lv["k_l"], b.low)
                 lv["new"] = new_period and i > 0  # ta.change(time(tf)) is na on the first candle
                 lv["fin"] = ends_higher_candle(b, tf, lv["tf"])
+                if not lv["fin"]:
+                    continue  # the candle's own signal only counts at its close
                 up_c, dn_c = sig_x(lv["set"], Bar(b.time, lv["k_o"], lv["k_h"], lv["k_l"], b.close, 0.0),
                                    lv["htf"][k - 1] if k >= 1 else None,
                                    lv["reds"][k - 1] if k >= 1 else 0, lv["greens"][k - 1] if k >= 1 else 0,
@@ -856,16 +957,80 @@ class SwingStrategy(Strategy):
             l1 = levels[0]
             s1, a1 = l1["state"], l1["active"]
             # Most losses per weekly signal: the counter restarts once per signal (v9.35).
+            reset_w = False
             if l1["fin"] and (l1["up_c"] or l1["dn_c"]):
                 perd_w = 0
-                w1_reseteado = True
+                w1_reseteado = reset_w = True
             cambio_w1 = s1 != 0 and s1 != prev_s1
             if l1["new"]:
                 if (l1["old"][0] or l1["old"][1]) and not w1_reseteado:
                     perd_w = 0
+                    reset_w = True
                 w1_reseteado = False
             perm_up = all(not lv["active"] or lv["state"] >= 0 for lv in levels)
             perm_dn = all(not lv["active"] or lv["state"] <= 0 for lv in levels)
+
+            # ---- HIJO -> NIETO (v9.38) ----
+            if hn:
+                k = hj["idx"][i]
+                if k != hj["k_at"] or hj["k_o"] is None:
+                    hj.update(k_o=b.open, k_h=b.high, k_l=b.low, k_at=k, k_t=b.time)
+                else:
+                    hj["k_h"], hj["k_l"] = max(hj["k_h"], b.high), min(hj["k_l"], b.low)
+                if not live:
+                    if reset_w:
+                        h_perd_w = 0
+                    for q in range(len(h_trades) - 1, -1, -1):
+                        he, hd, _ = h_trades[q]
+                        tgt = he * (1 + x["hObj"] / 100.0) if hd == 1 else he * (1 - x["hObj"] / 100.0)
+                        stp = he * (1 - x["hStop"] / 100.0) if hd == 1 else he * (1 + x["hStop"] / 100.0)
+                        hh = hijo_hit(hd, tgt, stp, b)
+                        if hh != 0:
+                            h_perd_w += 1 if hh == -1 else 0
+                            del h_trades[q]
+                    if ends_higher_candle(b, tf, HIJO_TF):
+                        h30 += 1
+                        hu, hdn = sig_x(hj["set"], Bar(b.time, hj["k_o"], hj["k_h"], hj["k_l"], b.close, 0.0),
+                                        hj["htf"][k - 1] if k >= 1 else None,
+                                        hj["reds"][k - 1] if k >= 1 else 0, hj["greens"][k - 1] if k >= 1 else 0,
+                                        eb=x["hNoEng1"] and at_930(hj["k_t"]))
+                        mn = x["hMA"]
+                        if mn:
+                            if mn == 1:
+                                ma_c = b.close
+                            elif k - (mn - 1) >= 0:
+                                ma_c = (sum(h.close for h in hj["htf"][k - mn + 1:k]) + b.close) / mn
+                            else:
+                                ma_c = None
+                            hu = hu and ma_c is not None and b.close > ma_c
+                            hdn = hdn and ma_c is not None and b.close < ma_c
+                        if x["hSoloW"]:
+                            hu, hdn = hu and s1 >= 0, hdn and s1 <= 0
+                        for q in range(len(h_trades) - 1, -1, -1):
+                            he, hd, hb30 = h_trades[q]
+                            contra = x["hContra"] and ((hd == 1 and hdn) or (hd == -1 and hu))
+                            if contra or (h30 - hb30) >= x["hVelas"]:
+                                h_perd_w += 1 if (b.close - he) * hd < 0 else 0
+                                del h_trades[q]
+                        opens = []
+                        for d, ok in ((1, hu), (-1, hdn)):
+                            if ok and (x["hPerdW"] == 0 or h_perd_w < x["hPerdW"]) and (x["hMax"] == 0 or len(h_trades) < x["hMax"]):
+                                h_trades.append([b.close, d, h30])
+                                opens.append(d)
+                        if opens:
+                            # if both open (very rare), the buy leads the window
+                            vent_dir, vent_end, vent_bar, vent_used = opens[0], b.time + chart_sec + 1800, i, False
+                            h_n += 1
+                            for d in opens:
+                                hijo_signals.append({"i": i, "time": b.time, "dir": d, "price": b.close})
+                # The NIETO's window: candles that close within the 30 minutes after the HIJO's candle closed,
+                # in the regular session.
+                vent_ok = (vent_dir != 0 and i > vent_bar and b.time + chart_sec <= vent_end
+                           and 570 <= min_et < session_close_min(dia_et))
+                s2 = levels[1]["state"]
+                free = not (x["nieto1a"] and vent_used)
+                perm_up = vent_ok and vent_dir == 1 and free and (not x["nietoDaily"] or s2 == 1)
+                perm_dn = vent_ok and vent_dir == -1 and free and (not x["nietoDaily"] or s2 == -1)
 
             # Continuation compares with the previous RAW signal.
             cont_up = not x["usarContinua"] or ult_dir >= 0
@@ -889,7 +1054,8 @@ class SwingStrategy(Strategy):
             for d, raw, ok, perm, cont, mok in ((1, raw_up, sig_up, perm_up, cont_up, ma_up),
                                                 (-1, raw_dn, sig_dn, perm_dn, cont_dn, ma_dn)):
                 if raw and not ok:
-                    why = [w for w, good in (("ladder", perm), ("continuation", cont), ("moving average", mok),
+                    why = [w for w, good in (("HIJO window" if hn else "ladder", perm), ("continuation", cont),
+                                             ("moving average", mok),
                                              ("ADX", adx_ok)) if not good]
                     blocked.append({"i": i, "time": b.time, "dir": d, "type": TYPES[tipo_up if d == 1 else tipo_dn],
                                     "why": why, "preview": live})
@@ -1128,6 +1294,8 @@ class SwingStrategy(Strategy):
             if dn_f and not modo_senal:
                 open_trades.append(OpenTrade(b.close, -1, i, tipo_sig, year, b.time, tvt))
                 entries.append({"i": i, "time": b.time, "price": b.close, "dir": -1, "type": TYPES[tipo_sig]})
+            if hn and (up_f or dn_f) and not modo_senal:
+                vent_used = True  # the HIJO's window has opened its first NIETO entry
             # The arrows: only signals that really open (v9.26).
             for d, f in ((1, up_f), (-1, dn_f)):
                 if f:
@@ -1171,7 +1339,8 @@ class SwingStrategy(Strategy):
 
             prev_s1 = s1
             now = {"perd_w": perd_w, "bloq_perd_w": bloq_perd_w, "en_apertura": en_apertura,
-                   "trades_sesion": trades_sesion, "perm_up": perm_up, "perm_dn": perm_dn}
+                   "trades_sesion": trades_sesion, "perm_up": perm_up, "perm_dn": perm_dn,
+                   "hijo": hn, "vent_ok": hn and vent_ok, "vent_dir": vent_dir}
 
         # The open position for the target/stop lines.
         o, st = x["objPct"] / 100.0, x["stopPct"] / 100.0
@@ -1212,6 +1381,11 @@ class SwingStrategy(Strategy):
             "intrabar": {"on": intra_ok, "tf": x["tfIntra"],
                          "covered_from": next((bars[i].time for i in range(closed) if inside[i]), None)},
             "ma": [{"time": bars[i].time, "value": ma[i]} for i in range(n) if ma[i] is not None] if ma_len else [],
+            # v9.38: the HIJO's opening signals (each starts a 30-minute window) and its trades now
+            "hijo": {"signals": hijo_signals, "count": h_n, "open": len(h_trades), "losses_w": h_perd_w,
+                     "window": {"dir": vent_dir, "until": vent_end} if hn and vent_ok else None} if hn else None,
+            # the settings really used (HIJO -> NIETO replaces some), for Backtest's date-range tables
+            "inputs_used": x,
         }
         if luck:
             out["luck"] = _luck(x, az_sig, az_edge, st_sbL, st_sbS, st_abL, st_abS)
@@ -1244,7 +1418,12 @@ def _now(x: dict, st: dict, levels: list, bloq_dir: int, n_open: int, n_cst: int
         out.append("in a row: no SELL")
     if x["modoSenal"] and x["modoCesta"] and x["maxCesta"] > 0 and n_cst >= x["maxCesta"]:
         out.append(f"basket full ({n_cst})")
-    if x["usarEscalera"]:
+    if st.get("hijo"):
+        if st["vent_ok"]:
+            out.append("HIJO window: BUYS only" if st["vent_dir"] == 1 else "HIJO window: SELLS only")
+        else:
+            out.append("outside the HIJO window: nothing")
+    elif x["usarEscalera"]:
         if st["perm_up"] and not st["perm_dn"]:
             out.append("BUYS only (ladder)")
         elif st["perm_dn"] and not st["perm_up"]:

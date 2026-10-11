@@ -1,5 +1,5 @@
 """The strategy engine against hand-worked candle sequences (plan rule 5: strategy logic gets the
-most tests). Names refer to docs/swing_diario_semanal_v9_37.pine."""
+most tests). Names refer to docs/swing_diario_semanal_v9_38.pine."""
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -751,3 +751,81 @@ def test_minutes_levels_end_every_n_minutes_from_930():
     assert ends(9, 45, "30m") and not ends(9, 30, "30m") and ends(10, 15, "30m")
     assert ends(10, 15, "1h") and not ends(9, 45, "1h") and ends(15, 45, "1h")  # 16:00 ends the session
     assert ends(9, 59, "30m", tf="1m") and not ends(9, 58, "30m", tf="1m")
+
+
+# ---------- v9.38: HIJO 30 minutes -> NIETO 5 minutes ----------
+
+
+def _hn_chart(*window: Bar) -> list[Bar]:
+    """A 5-minute Tuesday morning: 9:30-9:55 climb 100 -> 110 in candles of no type (the 30-minute
+    candle is a green LLENA, body 86%), then the given candles from 10:00 on."""
+    out, step = [], 10 / 6
+    for k in range(6):
+        o = 100 + k * step
+        out.append(Bar(_ny(9, 9, 30 + 5 * k), o, o + step * 1.5, o - step / 2, o + step, 1))
+    return out + list(window)
+
+
+def _m5(hh: int, mm: int, kind: str = "doji", base: float = 110.0) -> Bar:
+    t = _ny(9, hh, mm)
+    if kind == "up":  # LLENA up, body 90%
+        return Bar(t, base, base + 10.5, base - 0.5, base + 10, 1)
+    if kind == "down":
+        return Bar(t, base, base + 0.5, base - 10.5, base - 10, 1)
+    return Bar(t, base, base + 0.5, base - 0.5, base, 1)
+
+
+def _hn_run(chart: list[Bar], **changes):
+    halves = [Bar(_ny(9, 9, 30), 100, 110.8, 99.2, 110, 1), Bar(_ny(9, 10, 0), 110, 120.5, 99.5, 110, 1),
+              Bar(_ny(9, 10, 30), 110, 120.5, 109.5, 120, 1)]
+    other = {"30m": halves, "1W": [flat(0), flat(7, 110)], "1D": [flat(7), flat(8, 110)]}
+    return run(chart, tf="5m", usarIntra=False, other=other,
+               **({"hijoNieto": True, "nietoEstudio": False, "hMA": 0, "hLl": 85.0} | changes))
+
+
+def test_hijo_nieto_settings():
+    from app.strategy.swing import effective_inputs
+
+    x = S.defaults()
+    assert (x["hijoNieto"], x["nietoObj"], x["nietoStop"], x["nietoDias"], x["nieto1a"], x["nietoDaily"]) == \
+        (False, 4, 4, 5, False, False)
+    # The HIJO starts with the file's 30M-1 settings, not the level-3 ones.
+    assert (x["hL"], x["hLl"], x["hFl"], x["hFlM"], x["hEn"], x["hnR"], x["hnV"], x["hNoEng1"], x["hMA"], x["hSoloW"]) == \
+        (True, 70, 50, 3, 55, 3, 5, True, 8, True)
+    assert (x["hObj"], x["hStop"], x["hVelas"], x["hMax"], x["hPerdW"], x["hContra"]) == (15, 13, 800, 30, 3, True)
+    on = effective_inputs(x | {"hijoNieto": True}, "5m")
+    # 5 market days of 6.5 hours on 5 minutes = 390 candles; the NIETO's own candle rules and no caps.
+    assert (on["objPct"], on["stopPct"], on["maxVelas"], on["cierraMercado"]) == (4, 4, 390, True)
+    assert (on["cuerpoLlena"], on["mechaFleco"], on["cuerpoEngulf"], on["noEngPrimera"], on["nVerdes"]) == (70, 50, 55, True, 5)
+    assert (on["maxAbiertas"], on["cierraContra"], on["maCual"], on["maLen1"]) == (0, False, "MA1", 8)
+    assert effective_inputs(x | {"hijoNieto": True}, "30m") == x | {"hijoNieto": True}  # 30 minutes and up: off
+    assert S.needs("5m", x | {"hijoNieto": True}) == {"30m", "1W", "1D"}
+
+
+def test_nieto_opens_only_in_the_30_minutes_after_a_hijo_signal_in_its_direction():
+    chart = _hn_chart(_m5(10, 0), _m5(10, 5, "up"), _m5(10, 10, "down", 120), _m5(10, 15), _m5(10, 20), _m5(10, 25),
+                      _m5(10, 30), _m5(10, 35, "up"))
+    out = _hn_run(chart)
+    assert [(s["i"], s["dir"]) for s in out["hijo"]["signals"]] == [(5, 1)]  # the 9:55 candle closes the HIJO's candle
+    assert [(s["i"], s["dir"]) for s in out["signals"]] == [(7, 1)]
+    # The sell in the window and the buy after it are kept out by the window.
+    assert [(b["i"], b["why"]) for b in out["blocked"]] == [(8, ["HIJO window"]), (13, ["HIJO window"])]
+    # 4% / 4%: the red candle takes the long's stop.
+    assert [(t["reason"], t["ret_pct"]) for t in out["trades"]] == [("SL", -4.0)]
+    assert out["now"] == ["outside the HIJO window: nothing"]
+    # Off, the same chart trades both 5-minute candles (and the sell).
+    assert len(_hn_run(chart, hijoNieto=False)["signals"]) == 3
+
+
+def test_hijo_filters():
+    chart = _hn_chart(_m5(10, 0), _m5(10, 5, "up"), _m5(10, 10), _m5(10, 15, "up"))
+    assert [s["i"] for s in _hn_run(chart)["signals"]] == [7, 9]
+    assert [s["i"] for s in _hn_run(chart, nieto1a=True)["signals"]] == [7]  # only the 1st entry per HIJO signal
+    assert _hn_run(chart, hMA=8)["hijo"]["count"] == 0  # its moving average needs 8 candles
+    assert _hn_run(chart, hL=False)["signals"] == []
+    # The weekly filter: a weekly SELL keeps the HIJO's buy out, unless switched off.
+    weeks = [bar(0, 100, 100.5, 89.5, 90), flat(7, 110)]
+    other = {"30m": [Bar(_ny(9, 9, 30), 100, 110.8, 99.2, 110, 1)], "1W": weeks, "1D": [flat(7), flat(8, 110)]}
+    base = dict(tf="5m", usarIntra=False, other=other, hijoNieto=True, nietoEstudio=False, hMA=0, hLl=85.0)
+    assert run(chart, **base)["hijo"]["count"] == 0
+    assert run(chart, **base, hSoloW=False)["hijo"]["count"] == 1
