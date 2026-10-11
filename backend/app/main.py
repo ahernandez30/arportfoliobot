@@ -4,6 +4,7 @@ from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 from app import (health, live, routes_admin, routes_auth, routes_auto, routes_backtest, routes_capital, routes_market,
@@ -30,6 +31,8 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="AR Portfolio Bot", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
 app.add_exception_handler(RequestValidationError, validation_handler)
+# Master Chart sends every candle it ran on (8 years of 5-minute candles is ~15 MB of JSON).
+app.add_middleware(GZipMiddleware, minimum_size=2000)
 app.include_router(routes_auth.router)
 app.include_router(routes_me.router)
 app.include_router(routes_admin.router)
