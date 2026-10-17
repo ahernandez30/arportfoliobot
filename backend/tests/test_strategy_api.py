@@ -63,14 +63,17 @@ def test_strategy_list():
     make_user("rafa@example.com")
     c = signed_in("rafa@example.com")
     (s,) = c.get("/api/strategy/strategies").json()
-    assert s["id"] == "swing_v98" and s["version"] == "v9.38"
+    assert s["id"] == "swing_v98" and s["version"] == "v9.39"
     keys = [i["key"] for i in s["inputs"]]
     assert "cuerpoLlena" in keys and "horaCierreSS" in keys and len(keys) == len(STRATEGIES["swing_v98"].inputs)
 
 
 def test_run(rafa):
-    # The quiet candles here are all green, so the RACHA (on by default) is switched off.
-    r = rafa.post("/api/strategy/run", json=body(luck=True, inputs={"usarRacha": False}))
+    # The quiet candles here are all green, so the RACHA (on by default) is switched off; the other
+    # settings are the v9.38 defaults these candles were made for.
+    r = rafa.post("/api/strategy/run", json=body(luck=True, inputs={"usarRacha": False, "cuerpoLlena": 85.0,
+                  "mechaFleco": 65.0, "cuerpoMinFleco": 4.0, "cuerpoEngulf": 61.0, "noEngPrimera": False, "nVerdes": 3,
+                  "usarEscalera": False, "maxVelas": 13, "maxAbiertas": 10, "cierraContra": False, "maCual": "Ninguna"}))
     assert r.status_code == 200, r.text
     out = r.json()
     assert len(out["bars"]) == 60 and out["closed"] == 60  # old candles are all closed
@@ -146,22 +149,34 @@ def test_parity_all_match(rafa):
     assert s["logic_ok"] and s["differences"] == 0 and s["matched"] == s["tv_signals"] > 0
 
 
+def first_buy():
+    """The first candle where the engine, with the script's defaults, opens a buy."""
+    from app.strategy.base import StrategyData
+    s = STRATEGIES["swing_v98"]
+    res = s.run(StrategyData("X", "1D", BARS, len(BARS)), s.defaults())
+    return next(x["i"] for x in res["signals"] if x["dir"] == 1)
+
+
+def day_of(i):
+    return datetime.fromtimestamp(BARS[i].time, timezone.utc).strftime("%Y-%m-%d")
+
+
 def test_parity_explains_price_differences(rafa):
-    green = next(i for i, b in enumerate(BARS) if b.close - b.open > 5)
+    green = first_buy()
     r = rafa.post("/api/strategy/parity", json=pbody(csv=tv_csv(BARS, bump_at=green))).json()
     s = r["summary"]
     # TradingView's own prices give TradingView's signals: the translation is right...
     assert s["logic_ok"]
     # ...and the one difference is the candle whose prices differ.
     (d,) = r["detail"]["differences"]
-    assert d["candle"] == "2024-01-06" and d["tradingview"] == 0 and d["ours"] == 1
+    assert d["candle"] == day_of(green) and d["tradingview"] == 0 and d["ours"] == 1
     assert "prices differ" in d["why"]
 
 
 def test_parity_flags_logic_differences(rafa):
-    green = next(i for i, b in enumerate(BARS) if b.close - b.open > 5)
+    green = first_buy()
     r = rafa.post("/api/strategy/parity", json=pbody(csv=tv_csv(BARS, flip_at=green))).json()
-    assert not r["summary"]["logic_ok"] and r["detail"]["logic_mismatches"][0]["candle"] == "2024-01-06"
+    assert not r["summary"]["logic_ok"] and r["detail"]["logic_mismatches"][0]["candle"] == day_of(green)
 
 
 def test_parity_bad_file(rafa):

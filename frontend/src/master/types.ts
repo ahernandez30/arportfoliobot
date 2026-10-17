@@ -54,6 +54,16 @@ export type TypeRow = {
   days_loss: number | null
 }
 
+export type Months = {
+  won: number
+  lost: number
+  max_won_row: number
+  max_lost_row: number
+  now_won_row: number | null
+  now_lost_row: number | null
+  losing_runs: { months: number; times: number }[]
+}
+
 export type SideRow = { side: 'long' | 'short'; wins: number; losses: number; win_rate: number | null; r_avg: number | null }
 
 export type Results = {
@@ -66,6 +76,8 @@ export type Results = {
   capital?: { start: number; pct_per_trade: number; compound: boolean; final: number; gain: number; return_pct: number; trades: number; max_drop_pct: number }
   /** Everything that closes on one candle counts as one hit. */
   hits?: { max_won_in_a_row: number; max_lost_in_a_row: number; worst_run: number; worst_run_pct: number }
+  /** v9.39: months the account went up or down (a month without trades neither breaks nor adds to a run). */
+  months?: Months | null
   candles_measured: number
   max_win_streak: number
   max_loss_streak: number
@@ -174,7 +186,8 @@ export type ParityCheck = {
   }
 }
 
-export type OpenCesta = { pct: number | null; target: number; closed: number }
+/** The CESTA now: the average % of the open trades; target the gain box, loss the loss box (v9.39; 0 = off). */
+export type OpenCesta = { pct: number | null; target: number; loss?: number; closed: number }
 
 export type HijoInfo = {
   signals: { i: number; time: number; dir: 1 | -1; price: number }[]

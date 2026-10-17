@@ -1,4 +1,4 @@
-"""'Swing — Vela Diaria/Semanal v9.38', translated from docs/swing_diario_semanal_v9_38.pine.
+"""'Swing — Vela Diaria/Semanal v9.39', translated from docs/swing_diario_semanal_v9_39.pine.
 
 The translation follows the script statement by statement and in the script's order; comments
 give the script's own names so the two can be read side by side. Where the plan's summary and the
@@ -19,6 +19,11 @@ Conventions shared with TradingView:
   trades inside the engine; each signal it really opens starts a 30-minute window in which this chart (the
   NIETO, made for 5 minutes) may open only in that direction. effective_inputs gives the settings the
   NIETO then really uses.
+- v9.39 brings in Alex's copy of 17 October: the defaults are its 30M-1 set; weekly losses count only
+  trades opened since that weekly signal; AL REVÉS after the weekly losses; the CESTA (and the basket's
+  take profit and stop) on the AVERAGE of the open trades' %, looked at inside the candle; DISTANCE
+  between trades of one side; group 12 DAILY 1; the months rows. "Repartido" is gone, and the settings
+  Alex does not use stay fixed (FIXED).
 
 What the site leaves out: the script's drawing options (arrows, labels, colours, table positions)
 and the ATR target/stop, which the script keeps switched off. The script's 4-hour ladder level
@@ -37,7 +42,7 @@ from app.strategy.base import TIMEFRAME_SECONDS, InputDef, Strategy, StrategyDat
 NY = ZoneInfo("America/New_York")
 TYPES = ("LLENA", "FLECO", "ENGULFING", "RACHA")
 INTRADAY = ("1m", "5m", "15m", "30m", "1h")
-VERSION = "v9.38"
+VERSION = "v9.39"
 
 G_SIGNAL = "1 · Candle types (Tipos de vela)"
 G_FILTERS = "2 · Signal filters (Filtros)"
@@ -48,9 +53,10 @@ G_SS = "5 · Signal to signal and basket (cesta)"
 G_CAP = "6 · Capital (stock)"
 G_OPEN = "7 · Opening window (Apertura)"
 G_CS = "8 · Credit spreads (statistics)"
-G_MA = "9 · Moving average and ADX (rarely used)"
+G_MA = "9 · Moving average and ADX (rarely used; at the end)"
 G_HN = "10 · HIJO 30 minutes → NIETO (this chart)"
 G_HIJO = "10a · HIJO: the 30-minute signal and its own trades"
+G_D1 = "12 · DAILY 1 (separate daily bias)"
 HIJO_TF = "30m"
 
 
@@ -75,19 +81,19 @@ def _level_inputs(n: int, letter: str, name: str, tf: str, ll: tuple) -> list[In
 INPUTS: list[InputDef] = [
     # 1 · Tipos de vela
     InputDef("verLlena", "LLENA: use", "bool", True, G_SIGNAL),
-    InputDef("cuerpoLlena", "LLENA: body ≥ % of range", "float", 85.0, G_SIGNAL, 1, 100),
+    InputDef("cuerpoLlena", "LLENA: body ≥ % of range", "float", 70.0, G_SIGNAL, 1, 100),
     InputDef("verFleco", "FLECO: use", "bool", True, G_SIGNAL),
-    InputDef("mechaFleco", "FLECO: wick ≥ % of range", "float", 65.0, G_SIGNAL, 1, 100),
-    InputDef("cuerpoMinFleco", "FLECO: minimum body %", "float", 4.0, G_SIGNAL, 0, 90,
+    InputDef("mechaFleco", "FLECO: wick ≥ % of range", "float", 50.0, G_SIGNAL, 1, 100),
+    InputDef("cuerpoMinFleco", "FLECO: minimum body %", "float", 3.0, G_SIGNAL, 0, 90,
              help="0 = use all, even tiny-bodied dojis."),
     InputDef("verEngulf", "ENGULFING: use", "bool", True, G_SIGNAL),
-    InputDef("cuerpoEngulf", "ENGULFING: minimum body %", "float", 61.0, G_SIGNAL, 0, 100,
+    InputDef("cuerpoEngulf", "ENGULFING: minimum body %", "float", 55.0, G_SIGNAL, 0, 100,
              help="0 = size does not matter."),
-    InputDef("noEngPrimera", "No ENGULFING on the first candle of the session", "bool", False, G_SIGNAL,
+    InputDef("noEngPrimera", "No ENGULFING on the first candle of the session", "bool", True, G_SIGNAL,
              help="Avoids the overnight gap."),
     InputDef("usarRacha", "RACHA: candles in a row of the same colour (exhaustion, reversed)", "bool", True, G_SIGNAL),
     InputDef("nRojas", "RACHA: N red candles in a row → buy", "int", 3, G_SIGNAL, 1, 20),
-    InputDef("nVerdes", "RACHA: N green candles in a row → sell", "int", 3, G_SIGNAL, 1, 20),
+    InputDef("nVerdes", "RACHA: N green candles in a row → sell", "int", 5, G_SIGNAL, 1, 20),
     InputDef("rachaFleco", "RACHA: require a wick on the reversal side", "bool", False, G_SIGNAL,
              help="If candle N has none, keeps looking while the run of the same colour continues."),
     InputDef("rachaFlecoMecha", "RACHA wick: minimum % of range", "float", 40.0, G_SIGNAL, 1, 100),
@@ -99,15 +105,19 @@ INPUTS: list[InputDef] = [
     InputDef("perSeguidas", "LOSERS IN A ROW: after N in one direction, the next must be the other (0 = off)", "int", 0,
              G_FILTERS, 0, 1000),
     # 3 · Escalera
-    InputDef("usarEscalera", "LADDER: only signals agreeing with the higher timeframes", "bool", False, G_LADDER),
+    InputDef("usarEscalera", "LADDER: only signals agreeing with the higher timeframes", "bool", True, G_LADDER),
     InputDef("filtro1", "Level 1 on", "bool", True, G_LADDER),
     InputDef("tfS1", "Level 1 timeframe", "timeframe", "1W", G_LADDER),
     InputDef("filtro2", "Level 2 on", "bool", False, G_LADDER),
     InputDef("tfS2", "Level 2 timeframe", "timeframe", "1D", G_LADDER),
     InputDef("filtro3", "Level 3 on", "bool", False, G_LADDER),
     InputDef("tfS3", "Level 3 timeframe", "timeframe", "30m", G_LADDER),
-    InputDef("maxPerdW", "Most LOSSES per level-1 (weekly) signal, then wait for the next (0 = off)", "int", 0,
-             G_LADDER, 0, 1000),
+    InputDef("maxPerdW", "Most LOSSES per level-1 (weekly) signal, then wait for the next (0 = off)", "int", 3,
+             G_LADDER, 0, 1000, help="Only losses of trades opened since that weekly signal count (v9.39)."),
+    InputDef("invPerdW", "After the most weekly LOSSES: trade REVERSED (against the weekly) until as many new losses or "
+             "the next weekly signal", "bool", False, G_LADDER),
+    InputDef("invSinContra", "REVERSED: the OPPOSITE signal closes nothing until the next weekly signal", "bool", True,
+             G_LADDER),
     InputDef("cierraCambioW", "Normal mode: CLOSE opposite trades when level 1 (weekly) changes", "bool", False, G_LADDER),
     *_level_inputs(1, "a", "Weekly", "1W", (True, True, True, True, 85.0, 65.0, 4.0, 61.0, 3, 7)),
     *_level_inputs(2, "b", "Daily", "1D", (True, True, False, True, 85.0, 70.0, 4.0, 61.0, 2, 7)),
@@ -122,26 +132,27 @@ INPUTS: list[InputDef] = [
     # 4 · Modo NORMAL
     InputDef("objPct", "TARGET % (objetivo)", "float", 15.0, G_NORMAL, 0.1, 1000),
     InputDef("stopPct", "STOP %", "float", 13.0, G_NORMAL, 0.1, 100),
-    InputDef("maxVelas", "Candles until closing at market / floating", "int", 13, G_NORMAL, 1, 1000),
+    InputDef("maxVelas", "Candles until closing at market / floating", "int", 800, G_NORMAL, 1, 1000),
     InputDef("cierraMercado", "Close at market after N candles (else leave floating)", "bool", True, G_NORMAL),
     InputDef("unaVez", "ONE AT A TIME: no new position until the last closes", "bool", False, G_NORMAL),
-    InputDef("maxAbiertas", "Most trades open at once (0 = no limit)", "int", 10, G_NORMAL, 0, 1000),
-    InputDef("normalCuenta", "How to count", "choice", "Repartido", G_NORMAL,
-             options=("Repartido", "Cada operación su %"),
-             help="Repartido = each trade is worth 1/most-open of the account in the R column."),
-    InputDef("cierraContra", "CLOSE open trades on the OPPOSITE signal", "bool", False, G_NORMAL),
+    InputDef("maxAbiertas", "Most trades open at once (0 = no limit)", "int", 30, G_NORMAL, 0, 1000),
+    InputDef("cierraContra", "CLOSE open trades on the OPPOSITE signal", "bool", True, G_NORMAL),
     InputDef("dirOper", "DIRECTION: which side to trade", "choice", "Ambas", G_NORMAL,
              options=("Ambas", "Solo largos", "Solo cortos"),
              help="Ambas = both. In signal to signal and basket, a signal of the switched-off side still closes."),
     InputDef("usarIntra", "Real path: look inside the candle for the true order", "bool", True, G_NORMAL),
     InputDef("tfIntra", "Real path timeframe", "timeframe", "1h", G_NORMAL,
              help="E.g. 1D on weekly, 1h on daily. Must not be above the chart's timeframe."),
-    InputDef("cestaN", "CESTA: close ALL open trades when their gain TOGETHER reaches % (0 = off)", "float", 0.0,
-             G_NORMAL, 0, 100000, help="Checked at each candle's close, on the trades that candle leaves open."),
-    InputDef("cestaNMide", "CESTA: how to measure the gain together", "choice", "Suma de todas", G_NORMAL,
-             options=("Suma de todas", "Media de las abiertas", "Repartido (suma / máx. abiertas)"),
-             help="Suma = sum of every open trade's %; Media = their average; Repartido = the sum divided by the most open."),
-    InputDef("cestaMin", "CESTA: only with at least N open", "int", 2, G_NORMAL, 1, 1000),
+    InputDef("cestaN", "CESTA: close ALL open trades when their AVERAGE gain reaches % (0 = off)", "float", 0.0,
+             G_NORMAL, 0, 100000, help="The average of the open trades' %, checked inside the candle; they close at the "
+             "exact price where the average gets there (or at the open if it opens past it). Only with 2 or more open."),
+    InputDef("cestaPerd", "CESTA: close ALL open trades when their AVERAGE LOSS reaches % (0 = off)", "float", 0.0,
+             G_NORMAL, 0, 100000),
+    InputDef("distContra", "DISTANCE between trades of the same side, price AGAINST the last one: open another only "
+             "if it is % away (0 = off; basket too)", "float", 0.0, G_NORMAL, 0, 1000,
+             help="Measured from the LAST open trade of that side; the first of each side always opens."),
+    InputDef("distFavor", "DISTANCE when the price is IN FAVOUR of the last one: open another only if it is % away "
+             "(0 = opens anyway)", "float", 0.0, G_NORMAL, 0, 1000),
     # 5 · Señal a señal y basket
     InputDef("modoSenal", "SIGNAL TO SIGNAL: hold until the opposite signal", "bool", False, G_SS),
     InputDef("tpPctSS", "Take profit % (0 = none, opposite signal only)", "float", 0.0, G_SS, 0, 1000),
@@ -149,10 +160,9 @@ INPUTS: list[InputDef] = [
     InputDef("horaCierreSS", "Close no matter what at this time (HH:MM New York)", "time", "", G_SS,
              help="Empty = none. No new entries after it."),
     InputDef("modoCesta", "BASKET: add same-side signals, close the basket together", "bool", False, G_SS,
-             help="Only with signal to signal on. Take profit and stop apply to the average entry."),
+             help="Only with signal to signal on. Take profit and stop apply to the AVERAGE of the entries' %, checked "
+             "inside the candle."),
     InputDef("maxCesta", "Basket: most entries (0 = no limit)", "int", 5, G_SS, 0, 1000),
-    InputDef("cestaCuenta", "Basket: how to count", "choice", "Repartido", G_SS,
-             options=("Repartido", "Cada entrada su %")),
     # 6 · Capital
     InputDef("capIni", "Starting capital ($)", "float", 10000.0, G_CAP, 1, 1e12),
     InputDef("capPct", "% of capital per trade", "float", 2.0, G_CAP, 0.01, 100),
@@ -192,6 +202,22 @@ INPUTS: list[InputDef] = [
     InputDef("hMax", "HIJO: most trades open at once (0 = no limit)", "int", 30, G_HIJO, 0, 1000),
     InputDef("hPerdW", "HIJO: most LOSSES per weekly signal, then wait for the next (0 = off)", "int", 3, G_HIJO, 0, 1000),
     InputDef("hContra", "HIJO: the opposite signal closes its trades", "bool", True, G_HIJO),
+    # 12 · DAILY 1 (v9.39)
+    InputDef("usarD1", "DAILY 1: on intraday charts, only open in favour of the last Daily 1 signal "
+             "(at YESTERDAY's close; the ladder stays as it is)", "bool", False, G_D1,
+             help="No Daily 1 signal yet = nothing opens."),
+    InputDef("d1L", "LLENA", "bool", True, G_D1),
+    InputDef("d1F", "FLECO", "bool", True, G_D1),
+    InputDef("d1E", "ENGULFING", "bool", False, G_D1),
+    InputDef("d1R", "RACHA", "bool", True, G_D1),
+    InputDef("d1Ll", "LLENA: body ≥ %", "float", 85.0, G_D1, 1, 100),
+    InputDef("d1Fl", "FLECO: wick ≥ %", "float", 70.0, G_D1, 1, 100),
+    InputDef("d1FlM", "FLECO: minimum body %", "float", 4.0, G_D1, 0, 90),
+    InputDef("d1En", "ENGULFING: body ≥ % (0 = any size)", "float", 61.0, G_D1, 0, 100),
+    InputDef("d1nR", "RACHA: N red candles → buy", "int", 2, G_D1, 1, 20),
+    InputDef("d1nV", "RACHA: N green candles → sell", "int", 7, G_D1, 1, 20),
+    InputDef("d1MA", "Moving average of the daily candles (0 = none)", "int", 20, G_D1, 0, 500),
+    InputDef("d1Cont", "CONTINUATION: only Daily 1 signals following the last one", "bool", True, G_D1),
     # 9 · Credit spreads (estadística)
     InputDef("csAncho", "Spread width, % of price", "float", 1.33, G_CS, 0.05, 100,
              help="$5 wide with TSLA at 375 ≈ 1.33."),
@@ -209,9 +235,9 @@ INPUTS: list[InputDef] = [
     InputDef("csSimRiesgo", "SIMULATION: $ risked on each spread", "float", 5000.0, G_CS, 1, 1e12),
     InputDef("csSimCuenta", "SIMULATION: starting account $", "float", 100000.0, G_CS, 1, 1e12),
     # 9 · Media móvil y ADX
-    InputDef("maCual", "Moving average filter", "choice", "Ninguna", G_MA,
+    InputDef("maCual", "Moving average filter", "choice", "MA1", G_MA,
              options=("Ninguna", "MA1", "MA2", "MA3"), help="Ninguna = none. Buys only above it, sells only below."),
-    InputDef("maLen1", "MA1 length", "int", 50, G_MA, 1, 1000),
+    InputDef("maLen1", "MA1 length", "int", 8, G_MA, 1, 1000),
     InputDef("maLen2", "MA2 length", "int", 100, G_MA, 1, 1000),
     InputDef("maLen3", "MA3 length", "int", 200, G_MA, 1, 1000),
     InputDef("usarADX", "ADX filter", "bool", False, G_MA),
@@ -220,9 +246,12 @@ INPUTS: list[InputDef] = [
     InputDef("adxUmbral", "ADX level", "float", 25.0, G_MA, 0, 100),
     InputDef("adxLen", "ADX period", "int", 14, G_MA, 1, 500),
 ]
-# Groups 8 and 9 are not offered on the site (Rafa, 2026-10-10): they stay at the script's defaults,
-# so the credit-spread statistics use the default rows and no moving-average or ADX filter applies.
-INPUTS = [replace(d, hidden=True) if d.group in (G_CS, G_MA) else d for d in INPUTS]
+# Group 8 is not offered on the site (Rafa, 2026-10-10): the credit-spread statistics use the default rows.
+# v9.39 takes out of the settings what Alex does not use; they stay fixed at the values they had. The
+# moving average (MA1) and the ADX are offered again, at the end.
+FIXED = ("rachaFleco", "rachaFlecoMecha", "maxTradesSesion", "ganSeguidas", "perSeguidas", "cierraCambioW",
+         "maLen2", "maLen3")
+INPUTS = [replace(d, hidden=True) if d.group == G_CS or d.key in FIXED else d for d in INPUTS]
 
 
 # ---------- candle measurements and types (la señal, and f_sig / f_sigX) ----------
@@ -463,13 +492,13 @@ def f_seg(d: int, w: int, seg: dict, x: dict) -> None:
 
 
 def _op(tipo: int, d: int, entry_i: int, entry_time: int, entry_year: int, exit_i: int, exit_year: int, res: int,
-        r_book: float, cap: float | None, path: bool = False, dur: dict | None = None) -> dict:
+        r_book: float, cap: float | None, path: bool = False, dur: dict | None = None, exit_month: int | None = None) -> dict:
     """One operation as the script counts it: res 1 won, -1 lost, 0 floating; r_book what goes into
-    the R column (divided when shared); cap the move the capital row applies; dur the duration and
-    days-to-win/lose this operation adds (a basket adds it once, on its first entry)."""
+    the R column; cap the move the capital row applies; dur the duration and days-to-win/lose this
+    operation adds (a basket adds it once, on its first entry); exit_month year * 100 + month of its close."""
     return {"tipo": tipo, "dir": d, "entry_i": entry_i, "entry_time": entry_time, "entry_year": entry_year,
             "exit_i": exit_i, "exit_year": exit_year, "res": res, "r_book": r_book, "cap": cap, "path": path,
-            "dur": dur}
+            "dur": dur, "exit_month": exit_month}
 
 
 # ---------- luck test helpers (PRUEBA DE AZAR) ----------
@@ -660,13 +689,80 @@ class CreditSpreads:
         }
 
 
-def cesta_measure(x: dict, total: float, n: int) -> float:
-    """f_cestaMide (v9.37): the open trades' gain together."""
-    if x["cestaNMide"] == "Suma de todas":
-        return total
-    if x["cestaNMide"] == "Media de las abiertas":
-        return total / n if n > 0 else 0.0
-    return total / x["maxAbiertas"] if x["maxAbiertas"] > 0 else total
+def cesta_measure(total: float, n: int) -> float:
+    """f_cestaMide (v9.39): the AVERAGE of the open trades' % (the sum divided by how many)."""
+    return total / n if n > 0 else 0.0
+
+
+def cesta_hit(a: float, bsum: float, n: int, b: Bar, gain: float, loss: float) -> tuple[float, float] | None:
+    """The CESTA inside the candle (v9.39). The average of n open trades at price p is the straight
+    line m(p) = (a*p - bsum) * 100 / n (a = sum of direction / entry, bsum = sum of directions), so
+    in a candle it is highest and lowest at the high or the low. Opening past a level closes at the
+    open; else the loss is looked at first, and they close at the exact price where the average
+    reaches it. Returns (exit price, average there), or None."""
+    def m(p: float) -> float:
+        return (a * p - bsum) * 100.0 / n
+    m_o, m_h, m_l = m(b.open), m(b.high), m(b.low)
+    if loss > 0 and m_o <= -loss:
+        return b.open, m_o
+    if gain > 0 and m_o >= gain:
+        return b.open, m_o
+    if loss > 0 and min(m_h, m_l) <= -loss:
+        return (bsum - n * loss / 100.0) / a, -loss
+    if gain > 0 and max(m_h, m_l) >= gain:
+        return (bsum + n * gain / 100.0) / a, gain
+    return None
+
+
+def basket_mean(d: int, entries: list[float], p: float) -> float:
+    """The basket's average at price p (v9.39): the mean of each entry's % from its own price,
+    d * 100 * (p * S / n - 1) with S the sum of 1 / entry."""
+    s = sum(1.0 / e for e in entries)
+    return d * 100.0 * (p * s / len(entries) - 1.0)
+
+
+def dist_ok(x: dict, d: int, ref: float | None, price: float) -> bool:
+    """f_distOk (v9.39): another trade of side d opens only if the price is the set % away from the
+    last open one of that side (against: lower for buys, higher for sells; in favour: the other way)."""
+    if ref is None or ref <= 0:
+        return True
+    g = d * (price - ref) / ref * 100.0
+    if g < 0:
+        return x["distContra"] <= 0 or -g >= x["distContra"]
+    return x["distFavor"] <= 0 or g >= x["distFavor"]
+
+
+def daily1_bias(days: list[Bar], x: dict) -> list[int]:
+    """f_d1 (v9.39): the Daily 1 bias after each daily candle closes, from its own candle settings,
+    moving average and continuation. The chart reads the one of the day before ([1], lookahead_on)."""
+    st = {"vL": x["d1L"], "vF": x["d1F"], "vE": x["d1E"], "uR": x["d1R"], "cLl": x["d1Ll"], "mFl": x["d1Fl"],
+          "cMinFl": x["d1FlM"], "cEng": x["d1En"], "nR": x["d1nR"], "nV": x["d1nV"]}
+    reds, greens = runs_in_a_row(days)
+    ma = indicators.sma([b.close for b in days], x["d1MA"]) if x["d1MA"] else []
+    out, ult, ses = [], 0, 0
+    for j, b in enumerate(days):
+        c = classify(b, days[j - 1] if j else None, st["cLl"], st["mFl"], st["cMinFl"], st["cEng"],
+                     st["vL"], st["vF"], st["vE"])
+        up = c.up or (st["uR"] and reds[j] == st["nR"])
+        dn = c.dn or (st["uR"] and greens[j] == st["nV"])
+        ok_up = (not x["d1Cont"] or ult >= 0) and (not x["d1MA"] or (ma[j] is not None and b.close > ma[j]))
+        ok_dn = (not x["d1Cont"] or ult <= 0) and (not x["d1MA"] or (ma[j] is not None and b.close < ma[j]))
+        if up:
+            ult = 1
+        if dn:
+            ult = -1
+        if dn and ok_dn:
+            ses = -1
+        if up and ok_up:
+            ses = 1
+        out.append(ses)
+    return out
+
+
+def bar_month(b: Bar, tf: str) -> int:
+    """year * 100 + month of the candle, as the script's months rows count it."""
+    m = datetime.fromtimestamp(b.time, NY) if tf in INTRADAY else datetime.fromtimestamp(b.time, timezone.utc)
+    return m.year * 100 + m.month
 
 
 # ---------- HIJO -> NIETO (v9.38) ----------
@@ -691,7 +787,8 @@ def effective_inputs(inputs: dict, timeframe: str) -> dict:
         x.update(verLlena=True, cuerpoLlena=70.0, verFleco=True, mechaFleco=50.0, cuerpoMinFleco=3.0, verEngulf=True,
                  cuerpoEngulf=55.0, noEngPrimera=True, usarRacha=True, nRojas=3, nVerdes=5, rachaFleco=False,
                  usarContinua=False, maxTradesSesion=0, ganSeguidas=0, perSeguidas=0, maxPerdW=0, cierraCambioW=False,
-                 unaVez=False, maxAbiertas=0, cierraContra=False, cestaN=0.0, modoSenal=False, soloApertura=False,
+                 unaVez=False, maxAbiertas=0, cierraContra=False, cestaN=0.0, cestaPerd=0.0, distContra=0.0,
+                 distFavor=0.0, modoSenal=False, soloApertura=False,
                  maCual="MA1", maLen1=8, usarADX=False)
     return x
 
@@ -725,6 +822,8 @@ class SwingStrategy(Strategy):
         if hijo_on(inputs, timeframe):
             # the HIJO's 30-minute candles, and levels 1 and 2 for its weekly filter and the daily option
             out |= {HIJO_TF, inputs["tfS1"], inputs["tfS2"]}
+        if inputs["usarD1"] and timeframe in INTRADAY:
+            out.add("1D")  # v9.39: the Daily 1 bias
         if inputs["usarIntra"] and TIMEFRAME_SECONDS[inputs["tfIntra"]] <= chart_sec and inputs["tfIntra"] != timeframe:
             out.add(inputs["tfIntra"])
         if inputs["usarEscalera"]:
@@ -797,9 +896,25 @@ class SwingStrategy(Strategy):
                   "k_o": None, "k_h": None, "k_l": None, "k_at": None, "k_t": None}
         h_trades: list[list] = []  # [entry, direction, its 30-minute candle number]
         h30 = h_perd_w = h_n = 0
+        h_w30 = 0  # v9.39: the HIJO counts only losses of what it opened since the weekly signal
         vent_dir, vent_end, vent_bar, vent_used = 0, 0, -1, False
         vent_ok = False
         hijo_signals: list[dict] = []
+
+        # DAILY 1 (v9.39): on intraday charts, the bias of the day before, from the daily candles.
+        a_d1 = x["usarD1"] and tf in INTRADAY
+        d1_ses = [0] * n
+        if a_d1:
+            d1_days = data.other.get("1D", [])
+            d1_after = daily1_bias(d1_days, x)
+            # the last daily candle of a day BEFORE this candle's day, whether or not today's is in the feed yet
+            d1_dates = [datetime.fromtimestamp(d.time, timezone.utc).date() for d in d1_days]
+            k = -1
+            for j, b in enumerate(bars):
+                day_j = session_moment(b, tf).date()
+                while k + 1 < len(d1_dates) and d1_dates[k + 1] < day_j:
+                    k += 1
+                d1_ses[j] = d1_after[k] if k >= 0 else 0
 
         # Moving averages and ADX.
         closes = [b.close for b in bars]
@@ -813,7 +928,7 @@ class SwingStrategy(Strategy):
             hc_min = int(x["horaCierreSS"][:2]) * 60 + int(x["horaCierreSS"][3:])
 
         modo_senal, modo_cesta = x["modoSenal"], x["modoCesta"]
-        div_n = x["maxAbiertas"] if (x["normalCuenta"] == "Repartido" and x["maxAbiertas"] > 0) else 1
+        cesta_on = (x["cestaN"] > 0 or x["cestaPerd"] > 0) and not modo_senal
 
         signals: list[dict] = []
         blocked: list[dict] = []
@@ -827,6 +942,8 @@ class SwingStrategy(Strategy):
         n_up = n_dn = 0  # RACHA counters
         up_disp = dn_disp = False
         perd_w = 0
+        w_fase, w_bar = 0, -1  # v9.39: weekly signals so far, and the candle of the last one
+        inv_base, inv_fase = -1, -1  # v9.39: AL REVÉS
         n_cestas = 0
         w1_reseteado = False
         prev_s1 = 0
@@ -957,15 +1074,18 @@ class SwingStrategy(Strategy):
             l1 = levels[0]
             s1, a1 = l1["state"], l1["active"]
             # Most losses per weekly signal: the counter restarts once per signal (v9.35).
+            # v9.39: only losses of trades opened since that signal count (w_bar).
             reset_w = False
             if l1["fin"] and (l1["up_c"] or l1["dn_c"]):
                 perd_w = 0
                 w1_reseteado = reset_w = True
+                w_fase, w_bar = w_fase + 1, i
             cambio_w1 = s1 != 0 and s1 != prev_s1
             if l1["new"]:
                 if (l1["old"][0] or l1["old"][1]) and not w1_reseteado:
                     perd_w = 0
                     reset_w = True
+                    w_fase, w_bar = w_fase + 1, i
                 w1_reseteado = False
             perm_up = all(not lv["active"] or lv["state"] >= 0 for lv in levels)
             perm_dn = all(not lv["active"] or lv["state"] <= 0 for lv in levels)
@@ -979,14 +1099,14 @@ class SwingStrategy(Strategy):
                     hj["k_h"], hj["k_l"] = max(hj["k_h"], b.high), min(hj["k_l"], b.low)
                 if not live:
                     if reset_w:
-                        h_perd_w = 0
+                        h_perd_w, h_w30 = 0, h30 + 1
                     for q in range(len(h_trades) - 1, -1, -1):
-                        he, hd, _ = h_trades[q]
+                        he, hd, hb30 = h_trades[q]
                         tgt = he * (1 + x["hObj"] / 100.0) if hd == 1 else he * (1 - x["hObj"] / 100.0)
                         stp = he * (1 - x["hStop"] / 100.0) if hd == 1 else he * (1 + x["hStop"] / 100.0)
                         hh = hijo_hit(hd, tgt, stp, b)
                         if hh != 0:
-                            h_perd_w += 1 if hh == -1 else 0
+                            h_perd_w += 1 if hh == -1 and hb30 >= h_w30 else 0
                             del h_trades[q]
                     if ends_higher_candle(b, tf, HIJO_TF):
                         h30 += 1
@@ -1010,7 +1130,7 @@ class SwingStrategy(Strategy):
                             he, hd, hb30 = h_trades[q]
                             contra = x["hContra"] and ((hd == 1 and hdn) or (hd == -1 and hu))
                             if contra or (h30 - hb30) >= x["hVelas"]:
-                                h_perd_w += 1 if (b.close - he) * hd < 0 else 0
+                                h_perd_w += 1 if (b.close - he) * hd < 0 and hb30 >= h_w30 else 0
                                 del h_trades[q]
                         opens = []
                         for d, ok in ((1, hu), (-1, hdn)):
@@ -1032,6 +1152,11 @@ class SwingStrategy(Strategy):
                 perm_up = vent_ok and vent_dir == 1 and free and (not x["nietoDaily"] or s2 == 1)
                 perm_dn = vent_ok and vent_dir == -1 and free and (not x["nietoDaily"] or s2 == -1)
 
+            # DAILY 1 (v9.39): also only in favour of yesterday's Daily 1 bias (no signal yet: nothing opens).
+            if a_d1:
+                perm_up = perm_up and d1_ses[i] == 1
+                perm_dn = perm_dn and d1_ses[i] == -1
+
             # Continuation compares with the previous RAW signal.
             cont_up = not x["usarContinua"] or ult_dir >= 0
             cont_dn = not x["usarContinua"] or ult_dir <= 0
@@ -1048,8 +1173,23 @@ class SwingStrategy(Strategy):
             else:
                 adx_ok = True
 
-            sig_up = raw_up and perm_up and cont_up and ma_up and adx_ok
-            sig_dn = raw_dn and perm_dn and cont_dn and ma_dn and adx_ok
+            # AL REVÉS (v9.39): with the most weekly losses (and fewer than twice as many, counted from the moment
+            # it turns), instead of stopping it opens only the signals AGAINST the weekly; the next weekly signal
+            # puts it back to normal. With invSinContra the opposite signal closes nothing until then.
+            mpw = x["maxPerdW"]
+            if perd_w < mpw:
+                inv_base = -1
+            if x["invPerdW"] and inv_base < 0 and mpw > 0 and perd_w >= mpw:
+                inv_base = perd_w
+            inv_act = x["invPerdW"] and not hn and mpw > 0 and a1 and inv_base >= 0 and perd_w < inv_base + mpw
+            if inv_act:
+                inv_fase = w_fase
+            contra_off = x["invPerdW"] and x["invSinContra"] and inv_fase >= 0 and inv_fase == w_fase
+            contra_on = x["cierraContra"] and not contra_off
+            up_x = inv_act and raw_up and s1 == -1 and cont_up and ma_up and adx_ok
+            dn_x = inv_act and raw_dn and s1 == 1 and cont_dn and ma_dn and adx_ok
+            sig_up = (raw_up and perm_up and cont_up and ma_up and adx_ok) or up_x  # the reversed ones close too
+            sig_dn = (raw_dn and perm_dn and cont_dn and ma_dn and adx_ok) or dn_x
             tipo_sig = tipo_up if (sig_up and not sig_dn) else (tipo_dn if (sig_dn and not sig_up) else tipo_sig)
             for d, raw, ok, perm, cont, mok in ((1, raw_up, sig_up, perm_up, cont_up, ma_up),
                                                 (-1, raw_dn, sig_dn, perm_dn, cont_dn, ma_dn)):
@@ -1067,10 +1207,10 @@ class SwingStrategy(Strategy):
             en_apertura = in_session(min_et, x["sesApertura"])
             ok_apertura = not x["soloApertura"] or en_apertura
             ok_sesion = x["maxTradesSesion"] == 0 or trades_sesion < x["maxTradesSesion"]
-            bloq_perd_w = x["maxPerdW"] > 0 and a1 and perd_w >= x["maxPerdW"]
+            bloq_perd_w = x["maxPerdW"] > 0 and a1 and perd_w >= x["maxPerdW"] and not inv_act
             puede_abrir = ok_apertura and ok_sesion and not bloq_perd_w
-            up_v = sig_up and puede_abrir and x["dirOper"] != "Solo cortos"
-            dn_v = sig_dn and puede_abrir and x["dirOper"] != "Solo largos"
+            up_v = (up_x if inv_act else sig_up) and puede_abrir and x["dirOper"] != "Solo cortos"
+            dn_v = (dn_x if inv_act else sig_dn) and puede_abrir and x["dirOper"] != "Solo largos"
             up_f, dn_f = up_v, dn_v
 
             if live:
@@ -1081,15 +1221,18 @@ class SwingStrategy(Strategy):
                 continue
 
             year = bar_year(b, tf)
+            ym = bar_month(b, tf)
             tvt = int(when.timestamp())  # tv_time(b, tf)
 
             # ---------- normal mode: each signal its own trade ----------
             if not modo_senal and open_trades:
                 o_pct, s_pct = x["objPct"], x["stopPct"]
-                # CESTA (v9.37): the trades this candle leaves open (no target / stop, weekly change, opposite
-                # signal or candle count) and their gain together at the close; past the % they all close.
-                cesta_salta, cesta_sum, cesta_vivas = False, 0.0, 0
-                if x["cestaN"] > 0:
+                # CESTA (v9.39): the trades this candle leaves open (no target / stop, weekly change, opposite
+                # signal or candle count) and their AVERAGE %, looked at inside the candle; past +gain or -loss they
+                # all close at that price. With only one left open the CESTA does nothing.
+                cesta_salta, cesta_sum, cesta_vivas, cesta_a, cesta_b = False, 0.0, 0, 0.0, 0.0
+                cesta_px = b.close
+                if cesta_on:
                     for t in open_trades:
                         if i > t.bar:
                             e, d = t.entry, t.d
@@ -1097,12 +1240,20 @@ class SwingStrategy(Strategy):
                             stp = e * (1 - s_pct / 100.0) if d == 1 else e * (1 + s_pct / 100.0)
                             h, _ = hit_target_or_stop(d, tgt, stp, b, inside[i], intra_ok)
                             cw = x["cierraCambioW"] and a1 and cambio_w1 and d == -s1
-                            cc = x["cierraContra"] and ((d == 1 and sig_dn) or (d == -1 and sig_up))
+                            cc = contra_on and ((d == 1 and sig_dn) or (d == -1 and sig_up))
                             if not (h != 0 or cw or cc or (i - t.bar) >= x["maxVelas"]):
                                 cesta_vivas += 1
                                 cesta_sum += move_pct(d, e, b.close)
-                    cesta_salta = (cesta_vivas >= x["cestaMin"]
-                                   and cesta_measure(x, cesta_sum, cesta_vivas) >= x["cestaN"])
+                                cesta_a += d / e
+                                cesta_b += d
+                    if cesta_vivas >= 2:
+                        if cesta_a != 0:
+                            hit = cesta_hit(cesta_a, cesta_b, cesta_vivas, b, x["cestaN"], x["cestaPerd"])
+                            if hit:
+                                cesta_salta, cesta_px = True, hit[0]
+                        else:
+                            m0 = cesta_measure(cesta_sum, cesta_vivas)
+                            cesta_salta = (x["cestaN"] > 0 and m0 >= x["cestaN"]) or (x["cestaPerd"] > 0 and m0 <= -x["cestaPerd"])
                     n_cestas += 1 if cesta_salta else 0
                 for k in range(len(open_trades) - 1, -1, -1):
                     t = open_trades[k]
@@ -1122,12 +1273,12 @@ class SwingStrategy(Strategy):
                             r_t = move_pct(d, e, b.close)
                             res, res_w, motivo, exit_price = True, 1 if r_t >= 0 else -1, "cambio W", b.close
                         # The opposite signal (past the filters) closes at this close.
-                        if not res and x["cierraContra"] and ((d == 1 and sig_dn) or (d == -1 and sig_up)):
+                        if not res and contra_on and ((d == 1 and sig_dn) or (d == -1 and sig_up)):
                             r_t = move_pct(d, e, b.close)
                             res, res_w, motivo, exit_price = True, 1 if r_t >= 0 else -1, "contra", b.close
                         if not res and cesta_salta:
-                            r_t = move_pct(d, e, b.close)
-                            res, res_w, motivo, exit_price = True, 1 if r_t >= 0 else -1, "CESTA", b.close
+                            r_t = move_pct(d, e, cesta_px)
+                            res, res_w, motivo, exit_price = True, 1 if r_t >= 0 else -1, "CESTA", cesta_px
                         if not res and (i - t.bar) >= x["maxVelas"]:
                             r_t = move_pct(d, e, b.close)
                             if x["cierraMercado"]:
@@ -1138,12 +1289,12 @@ class SwingStrategy(Strategy):
                     if res:
                         days = (tvt - t.tv) / 86400.0
                         del open_trades[k]
-                        if res_w == -1:
+                        if res_w == -1 and t.bar >= w_bar:
                             perd_w += 1
                         f_seg(d, res_w, seg, x)
                         dur = {"days": days, "bars": i - t.bar, "tipo": t.tipo, "win": res_w} if res_w else None
-                        op = _op(t.tipo, d, t.bar, t.time, t.year, i, year, res_w, r_t / div_n,
-                                 r_t if res_w else None, path, dur)
+                        op = _op(t.tipo, d, t.bar, t.time, t.year, i, year, res_w, r_t,
+                                 r_t if res_w else None, path, dur, ym)
                         trades.append({"entry_i": t.bar, "entry_time": t.time, "entry_price": e, "dir": d,
                                        "type": TYPES[t.tipo], "exit_i": i, "exit_time": b.time,
                                        "exit_price": exit_price, "reason": motivo, "ret_pct": r_t,
@@ -1179,11 +1330,11 @@ class SwingStrategy(Strategy):
                 if cerro:
                     w = 1 if ret >= 0 else -1
                     f_seg(sig_dir, w, seg, x)
-                    if w == -1:
+                    if w == -1 and sig_bar >= w_bar:
                         perd_w += 1
                     days = (tvt - sig_tv) / 86400.0
                     op = _op(sig_tipo, sig_dir, sig_bar, sig_time, sig_year, i, year, w, ret, ret, False,
-                             {"days": days, "bars": i - sig_bar, "tipo": sig_tipo, "win": w})
+                             {"days": days, "bars": i - sig_bar, "tipo": sig_tipo, "win": w}, ym)
                     trades.append({"entry_i": sig_bar, "entry_time": sig_time, "entry_price": sig_entry, "dir": sig_dir,
                                    "type": TYPES[sig_tipo], "exit_i": i, "exit_time": b.time, "exit_price": exit_price,
                                    "reason": motivo, "ret_pct": ret, "counted": True, "bars": i - sig_bar, "days": days,
@@ -1210,23 +1361,20 @@ class SwingStrategy(Strategy):
                 if cst_dir != 0 and hora_cierre_hit:
                     ret, cerro, motivo = move_pct(cst_dir, avg, b.close), True, "HORA"
                 tp, sl = x["tpPctSS"], x["slPctSS"]
-                if not cerro and cst_dir != 0 and (tp > 0 or sl > 0):
-                    tp_l, sl_l = avg * (1 + tp / 100.0), avg * (1 - sl / 100.0)
-                    tp_c, sl_c = avg * (1 - tp / 100.0), avg * (1 + sl / 100.0)
-                    gap_sl = sl > 0 and (b.open <= sl_l if cst_dir == 1 else b.open >= sl_c)
-                    gap_tp = tp > 0 and (b.open >= tp_l if cst_dir == 1 else b.open <= tp_c)
-                    if gap_sl or gap_tp:
-                        ret, px, cerro, motivo = move_pct(cst_dir, avg, b.open), b.open, True, "SL" if gap_sl else "TP"
-                    elif cst_dir == 1:
-                        if sl > 0 and b.low <= sl_l:
-                            ret, px, cerro, motivo = -sl, sl_l, True, "SL"
-                        elif tp > 0 and b.high >= tp_l:
-                            ret, px, cerro, motivo = tp, tp_l, True, "TP"
-                    else:
-                        if sl > 0 and b.high >= sl_c:
-                            ret, px, cerro, motivo = -sl, sl_c, True, "SL"
-                        elif tp > 0 and b.low <= tp_c:
-                            ret, px, cerro, motivo = tp, tp_c, True, "TP"
+                # v9.39: take profit and stop on the AVERAGE of the entries' % (like the CESTA), inside the candle:
+                # opening past one closes at the open, else at the exact price, the stop looked at first.
+                if not cerro and cst_dir != 0 and (tp > 0 or sl > 0) and cst:
+                    ces = [e[0] for e in cst]
+                    s_inv, n_b = sum(1.0 / e for e in ces), len(ces)
+                    b_o, b_h, b_l = (basket_mean(cst_dir, ces, q) for q in (b.open, b.high, b.low))
+                    if sl > 0 and b_o <= -sl:
+                        ret, px, cerro, motivo = b_o, b.open, True, "SL"
+                    elif tp > 0 and b_o >= tp:
+                        ret, px, cerro, motivo = b_o, b.open, True, "TP"
+                    elif sl > 0 and min(b_h, b_l) <= -sl:
+                        ret, px, cerro, motivo = -sl, n_b * (1.0 - cst_dir * sl / 100.0) / s_inv, True, "SL"
+                    elif tp > 0 and max(b_h, b_l) >= tp:
+                        ret, px, cerro, motivo = tp, n_b * (1.0 + cst_dir * tp / 100.0) / s_inv, True, "TP"
                 opuesta = (sig_up or sig_dn) and cst_dir != 0 and ((1 if sig_up else -1) != cst_dir)
                 if opuesta and not cerro:
                     ret, cerro, motivo = move_pct(cst_dir, avg, b.close), True, "SIG"
@@ -1236,14 +1384,13 @@ class SwingStrategy(Strategy):
                     ops = []
                     n_e = len(cst)
                     for q, (eq_, tq, yq, iq, timeq) in enumerate(cst):
-                        own = move_pct(cst_dir, eq_, px)
-                        rq = ret / (x["maxCesta"] if x["maxCesta"] > 0 else n_e) if x["cestaCuenta"] == "Repartido" else own
-                        w = 1 if rq >= 0 else -1
-                        if w == -1:
+                        own = move_pct(cst_dir, eq_, px)  # each entry counts its own % (v9.39: no "Repartido")
+                        w = 1 if own >= 0 else -1
+                        if w == -1 and iq >= w_bar:
                             perd_w += 1
                         dur = ({"days": days, "bars": i - cst_bar, "tipo": cst_tipo, "win": 1 if ret >= 0 else -1}
                                if q == 0 else None)
-                        ops.append(_op(tq, cst_dir, iq, timeq, yq, i, year, w, rq, own, False, dur))
+                        ops.append(_op(tq, cst_dir, iq, timeq, yq, i, year, w, own, own, False, dur, ym))
                     trades.append({"entry_i": cst_bar, "entry_time": cst_time, "entry_price": avg, "dir": cst_dir,
                                    "type": TYPES[cst_tipo], "exit_i": i, "exit_time": b.time, "exit_price": px,
                                    "reason": motivo, "ret_pct": ret, "counted": True, "bars": i - cst_bar, "days": days,
@@ -1260,11 +1407,12 @@ class SwingStrategy(Strategy):
                         cst_dir, cst_tipo, cst_bar, cst_time, cst_tv = dc, tipo_sig, i, b.time, tvt
                         cst = [(b.close, tipo_sig, year, i, b.time)]
                         entries.append({"i": i, "time": b.time, "price": b.close, "dir": dc, "type": TYPES[tipo_sig]})
-                    elif cst_dir == dc and (x["maxCesta"] == 0 or len(cst) < x["maxCesta"]):
+                    elif (cst_dir == dc and (x["maxCesta"] == 0 or len(cst) < x["maxCesta"])
+                          and dist_ok(x, dc, cst[-1][0], b.close)):  # v9.39: distance from the last entry
                         cst.append((b.close, tipo_sig, year, i, b.time))
                         entries.append({"i": i, "time": b.time, "price": b.close, "dir": dc, "type": TYPES[tipo_sig]})
                     elif cst_dir == dc:
-                        up_f = dn_f = False  # the basket is full
+                        up_f = dn_f = False  # the basket is full, or too close to its last entry
                 elif up_v or dn_v:
                     up_f = dn_f = False  # past the close time
 
@@ -1285,6 +1433,12 @@ class SwingStrategy(Strategy):
                         dn_f = False
                     elif seg["bloq"] == 1:
                         seg.update(bloq=0, dir=0, res=0, n=0)
+            # DISTANCE (v9.39): from the last open trade of the same side (those closed on this candle are gone).
+            if not modo_senal and (up_f or dn_f) and (x["distContra"] > 0 or x["distFavor"] > 0):
+                ref_u = next((t.entry for t in reversed(open_trades) if t.d == 1), None)
+                ref_d = next((t.entry for t in reversed(open_trades) if t.d == -1), None)
+                up_f = up_f and dist_ok(x, 1, ref_u, b.close)
+                dn_f = dn_f and dist_ok(x, -1, ref_d, b.close)
             # Most per day counts only what really opens (v9.35).
             if up_f or dn_f:
                 trades_sesion += 1
@@ -1340,7 +1494,9 @@ class SwingStrategy(Strategy):
             prev_s1 = s1
             now = {"perd_w": perd_w, "bloq_perd_w": bloq_perd_w, "en_apertura": en_apertura,
                    "trades_sesion": trades_sesion, "perm_up": perm_up, "perm_dn": perm_dn,
-                   "hijo": hn, "vent_ok": hn and vent_ok, "vent_dir": vent_dir}
+                   "hijo": hn, "vent_ok": hn and vent_ok, "vent_dir": vent_dir,
+                   "inv_act": inv_act, "inv_new": perd_w - inv_base, "contra_off": contra_off, "s1": s1,
+                   "d1": d1_ses[i] if a_d1 else None}
 
         # The open position for the target/stop lines.
         o, st = x["objPct"] / 100.0, x["stopPct"] / 100.0
@@ -1358,10 +1514,10 @@ class SwingStrategy(Strategy):
 
         n_up_open = sum(1 for t in open_trades if t.d == 1)
         cesta_now = None
-        if x["cestaN"] > 0 and not modo_senal:
+        if cesta_on:
             total = sum(move_pct(t.d, t.entry, bars[-1].close) for t in open_trades) if open_trades and bars else 0.0
-            cesta_now = {"pct": cesta_measure(x, total, len(open_trades)) if open_trades else None,
-                         "target": x["cestaN"], "closed": n_cestas}
+            cesta_now = {"pct": cesta_measure(total, len(open_trades)) if open_trades else None,
+                         "target": x["cestaN"], "loss": x["cestaPerd"], "closed": n_cestas}
         out = {
             "signals": signals,
             "preview": preview,
@@ -1375,6 +1531,7 @@ class SwingStrategy(Strategy):
             "position": position,
             # "Velas medidas" counts the candle in progress too (bar_index + 1).
             "results": tables(trades, entries, bars, closed, x) | {"candles_measured": n},
+            "daily1": {"bias": d1_ses[-1] if n else 0} if a_d1 else None,
             "ladder": [{"tf": lv["tf"], "active": lv["active"], "state": lv["state"]} for lv in levels],
             "now": _now(x, now, levels, seg["bloq"], len(open_trades), len(cst)),
             "open_now": {"longs": n_up_open, "shorts": len(open_trades) - n_up_open, "cesta": cesta_now},
@@ -1412,6 +1569,11 @@ def _now(x: dict, st: dict, levels: list, bloq_dir: int, n_open: int, n_cst: int
         out.append(f"most open ({n_open}/{x['maxAbiertas']})")
     if st["bloq_perd_w"]:
         out.append(f"weekly losses ({st['perd_w']}/{x['maxPerdW']})")
+    if st.get("inv_act"):
+        out.append(f"REVERSED (new losses {st['inv_new']}/{x['maxPerdW']}): "
+                   + ("SELLS only" if st["s1"] == 1 else "BUYS only"))
+    if st.get("contra_off"):
+        out.append("opposite signal OFF until the next weekly signal")
     if bloq_dir == 1:
         out.append("in a row: no BUY")
     elif bloq_dir == -1:
@@ -1423,13 +1585,15 @@ def _now(x: dict, st: dict, levels: list, bloq_dir: int, n_open: int, n_cst: int
             out.append("HIJO window: BUYS only" if st["vent_dir"] == 1 else "HIJO window: SELLS only")
         else:
             out.append("outside the HIJO window: nothing")
-    elif x["usarEscalera"]:
+    elif x["usarEscalera"] and not st.get("inv_act"):
         if st["perm_up"] and not st["perm_dn"]:
             out.append("BUYS only (ladder)")
         elif st["perm_dn"] and not st["perm_up"]:
             out.append("SELLS only (ladder)")
         elif not st["perm_up"] and not st["perm_dn"]:
             out.append("ladder MIXED: nothing")
+    if st.get("d1") is not None:
+        out.append({1: "DAILY 1: BUYS only", -1: "DAILY 1: SELLS only"}.get(st["d1"], "DAILY 1: no signal yet, nothing"))
     if x["soloApertura"] and not st["en_apertura"]:
         out.append("outside the opening window")
     if x["maxTradesSesion"] > 0 and st["trades_sesion"] >= x["maxTradesSesion"]:
@@ -1450,6 +1614,7 @@ def tables(trades: list[dict], entries: list[dict], bars: list[Bar], closed: int
     yW: dict[int, int] = {}
     yL: dict[int, int] = {}
     yPL: dict[int, float] = {}
+    mPL: dict[int, float] = {}  # the account's change by the month trades closed (v9.39)
     dirW, dirL, dirR = [0, 0], [0, 0], [0.0, 0.0]
     racha_w = racha_l = max_rw = max_rl = n_camino = 0
     dur_n, dur_bars, dur_days = 0, 0.0, 0.0
@@ -1487,7 +1652,10 @@ def tables(trades: list[dict], entries: list[dict], bars: list[Bar], closed: int
             if op["exit_i"] != bar_exit:
                 close_bar()
                 bar_exit, bar_year_, eq_before = op["exit_i"], op["exit_year"], eq
+            eq_op = eq
             eq, mx, dd = f_cap(eq, mx, dd, op["cap"], x)
+            if op.get("exit_month") is not None:
+                mPL[op["exit_month"]] = mPL.get(op["exit_month"], 0.0) + eq - eq_op
             cap_n += 1
             rS[tp] += op["r_book"]
             side = 0 if op["dir"] == 1 else 1
@@ -1564,6 +1732,7 @@ def tables(trades: list[dict], entries: list[dict], bars: list[Bar], closed: int
         "capital": {"start": cap_ini, "pct_per_trade": x["capPct"], "compound": x["capComp"], "final": eq,
                     "gain": eq - cap_ini, "return_pct": (eq / cap_ini - 1) * 100.0, "trades": cap_n,
                     "max_drop_pct": dd},
+        "months": _months(mPL) if mPL else None,
         "hits": {"max_won_in_a_row": max_gw, "max_lost_in_a_row": max_gl, "worst_run": -peor,
                  "worst_run_pct": -peor / cap_ini * 100.0},
         "candles_measured": max(0, closed - first),
@@ -1574,6 +1743,29 @@ def tables(trades: list[dict], entries: list[dict], bars: list[Bar], closed: int
         "avg_bars": dur_bars / dur_n if dur_n else None,
         "mode": mode,
     }
+
+
+def _months(mpl: dict[int, float]) -> dict:
+    """The months rows (v9.39): winning and losing months in a row, the most ever and the run now,
+    and how many times it lost 1 month, 2 in a row, 3 in a row... A month without trades neither
+    breaks nor adds to a run."""
+    g = p = sg = sp = mg = mp = ult = 0
+    runs: dict[int, int] = {}
+    for k in sorted(mpl):
+        v = mpl[k]
+        if v > 0:
+            if sp:
+                runs[sp] = runs.get(sp, 0) + 1
+            g, sg, sp, ult = g + 1, sg + 1, 0, 1
+            mg = max(mg, sg)
+        elif v < 0:
+            p, sp, sg, ult = p + 1, sp + 1, 0, -1
+            mp = max(mp, sp)
+    if sp:
+        runs[sp] = runs.get(sp, 0) + 1
+    return {"won": g, "lost": p, "max_won_row": mg, "max_lost_row": mp,
+            "now_won_row": sg if ult == 1 else None, "now_lost_row": sp if ult == -1 else None,
+            "losing_runs": [{"months": k, "times": runs[k]} for k in sorted(runs)]}
 
 
 def _luck(x: dict, az_sig: list, az_edge: list, sbL: Stats4, sbS: Stats4, abL: Stats4, abS: Stats4) -> dict:

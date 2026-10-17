@@ -1,6 +1,6 @@
 import { formatPct } from '../market/bars'
 import { formatMoney } from '../money'
-import type { CreditSpreads, Luck, OpenCesta, Results, SpreadSide } from './types'
+import type { CreditSpreads, Luck, Months, OpenCesta, Results, SpreadSide } from './types'
 
 const TYPE_LABEL: Record<string, string> = { LLENA: 'LLENA', FLECO: 'FLECO', ENGULFING: 'ENGULF', RACHA: 'RACHA' }
 
@@ -24,6 +24,31 @@ function signClass(v: number | null): string {
 
 /** The script's results tables: by candle type, totals, capital, longs and shorts, streaks,
  * duration, what is stopping signals now, and year by year. */
+/** The CESTA's boxes: "+X%", "−Y%" or both (v9.39). */
+function cestaBoxes(c: OpenCesta): string {
+  const boxes = [c.target > 0 ? `+${c.target}%` : '', c.loss ? `−${c.loss}%` : ''].filter(Boolean)
+  return boxes.join(' / ')
+}
+
+/** v9.39: winning and losing months in a row, and how often it lost 1 month, 2 in a row, ... */
+function MonthsRows({ m }: { m: Months }) {
+  const total = m.won + m.lost
+  const runs = m.losing_runs.length
+    ? m.losing_runs.map((x) => `${x.months === 1 ? '1 month' : `${x.months} in a row`}: ${x.times} ${x.times === 1 ? 'time' : 'times'}`).join(' · ')
+    : 'none'
+  return (
+    <p className="muted">
+      <b>Winning months in a row:</b> most <span className="num gain">{m.max_won_row}</span>
+      {m.now_won_row != null && <> · now <span className="num gain">{m.now_won_row}</span></>}
+      {' '}(total: <span className="num">{m.won}</span> of <span className="num">{total}</span> months up)
+      {' '}· <b>Losing months in a row:</b> most <span className="num loss">{m.max_lost_row}</span>
+      {m.now_lost_row != null && <> · now <span className="num loss">{m.now_lost_row}</span></>}
+      {' '}(total: <span className="num">{m.lost}</span> of <span className="num">{total}</span> months down)
+      {' '}· <b>Runs of losing months:</b> <span className="loss">{runs}</span>
+    </p>
+  )
+}
+
 export function ResultsPanel({ r, ruleText, now, openNow }: {
   r: Results
   ruleText: string
@@ -38,7 +63,7 @@ export function ResultsPanel({ r, ruleText, now, openNow }: {
         <p className={now.length ? 'msg msg-warn' : 'msg msg-ok'}>
           Now: {now.length ? now.join(' · ') : 'free, nothing is stopping new signals'}
           {openNow && r.mode === 'target_stop' && <> · open: <span className="num">{openNow.longs}</span> long, <span className="num">{openNow.shorts}</span> short</>}
-          {openNow?.cesta && r.mode === 'target_stop' && <> · CESTA {openNow.cesta.pct === null ? 'nothing open' : <span className="num">{formatPct(openNow.cesta.pct)}</span>} of <span className="num">{openNow.cesta.target}%</span>, <span className="num">{openNow.cesta.closed}</span> closed</>}
+          {openNow?.cesta && r.mode === 'target_stop' && <> · CESTA average {openNow.cesta.pct === null ? 'nothing open' : <span className="num">{formatPct(openNow.cesta.pct)}</span>} of {cestaBoxes(openNow.cesta)}, <span className="num">{openNow.cesta.closed}</span> closed</>}
         </p>
       )}
       <div className="table-wrap">
@@ -91,6 +116,7 @@ export function ResultsPanel({ r, ruleText, now, openNow }: {
         <span className="num">{days(r.avg_days)}</span>{r.avg_bars != null && <> (<span className="num">{r.avg_bars.toFixed(1)}</span> candles)</>}
         {r.mode === 'target_stop' && <> · Decided by the real path: <span className="num">{r.real_path_trades}</span></>}
       </p>
+      {r.months && <MonthsRows m={r.months} />}
       {r.years.length > 0 && (
         <details>
           <summary>Year by year</summary>

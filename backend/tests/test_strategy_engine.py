@@ -1,5 +1,5 @@
 """The strategy engine against hand-worked candle sequences (plan rule 5: strategy logic gets the
-most tests). Names refer to docs/swing_diario_semanal_v9_38.pine."""
+most tests). Names refer to docs/swing_diario_semanal_v9_39.pine."""
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -7,7 +7,7 @@ import pytest
 from app.marketdata.base import Bar
 from app.strategy import indicators
 from app.strategy.base import InputError, StrategyData, check_inputs
-from app.strategy.swing import INPUTS, NY, SwingStrategy, classify, group_inside, runs_in_a_row
+from app.strategy.swing import INPUTS, NY, SwingStrategy, _months, classify, dist_ok, group_inside, runs_in_a_row
 
 S = SwingStrategy()
 DAY0 = datetime(2024, 1, 1, tzinfo=timezone.utc)  # a Monday
@@ -40,10 +40,16 @@ def red_small(i: int, base: float) -> Bar:
     return bar(i, base, base + 0.5, base - 1.5, base - 1)
 
 
+# The v9.38 defaults the hand-made sequences below were written for (v9.39 starts with the 30M-1 set).
+V938 = {"cuerpoLlena": 85.0, "mechaFleco": 65.0, "cuerpoMinFleco": 4.0, "cuerpoEngulf": 61.0, "noEngPrimera": False,
+        "nVerdes": 3, "usarEscalera": False, "maxPerdW": 0, "maxVelas": 13, "maxAbiertas": 10, "cierraContra": False,
+        "maCual": "Ninguna", "maLen1": 50}
+
+
 def run(bars, tf="1D", closed=None, luck=False, other=None, **changes):
-    """The engine with the script's defaults, except the RACHA, which is off unless a test turns it
-    on, so the hand-made sequences below are only the candles they mean to be."""
-    inputs = check_inputs(INPUTS, {"usarRacha": False} | changes)
+    """The engine with the v9.38 defaults above, and the RACHA off unless a test turns it on, so
+    the hand-made sequences below are only the candles they mean to be."""
+    inputs = check_inputs(INPUTS, V938 | {"usarRacha": False} | changes)
     # The engine still follows the script's groups 8 and 9, which the site hides at their defaults.
     inputs |= {d.key: d.check(changes[d.key]) for d in INPUTS if d.hidden and d.key in changes}
     data = StrategyData("TEST", tf, bars, len(bars) if closed is None else closed, other or {})
@@ -170,9 +176,10 @@ def test_target_hit_by_ohlc():
     (t,) = out["trades"]
     assert t["reason"] == "TP" and t["ret_pct"] == 15 and t["exit_price"] == pytest.approx(126.5)
     r = out["results"]
-    # "Repartido" with at most 10 open: each trade is a tenth of the account in the R column.
-    assert r["total"]["wins"] == 1 and r["by_type"][0]["r_avg"] == pytest.approx(1.5)
-    assert run(bars, usarIntra=False, normalCuenta="Cada operación su %")["results"]["by_type"][0]["r_avg"] == 15
+    # v9.39: no "Repartido", each trade counts its whole % in the R column.
+    assert r["total"]["wins"] == 1 and r["by_type"][0]["r_avg"] == 15
+    assert r["months"] == {"won": 1, "lost": 0, "max_won_row": 1, "max_lost_row": 0, "now_won_row": 1,
+                           "now_lost_row": None, "losing_runs": []}
     # Capital: 2% of $10,000 into a +15% trade.
     assert r["capital"]["final"] == pytest.approx(10030) and r["capital"]["trades"] == 1
     assert r["years"] == [{"year": 2024, "wins": 1, "losses": 0, "pnl": pytest.approx(30), "pnl_pct": pytest.approx(0.3)}]
@@ -382,9 +389,10 @@ def test_basket_averages_and_closes_together():
     (t,) = out["trades"]
     assert t["entries"] == 2 and t["entry_price"] == 115  # average of 110 and 120
     assert t["reason"] == "SIG" and t["ret_pct"] == pytest.approx((101 - 115) / 115 * 100)
-    # Each entry counts as one operation (v9.16); "Repartido": the basket's % over the most entries.
+    # Each entry counts as one operation (v9.16), with its own % (v9.39: no "Repartido").
     r = out["results"]
-    assert r["total"]["losses"] == 2 and r["total"]["r_avg"] == pytest.approx(t["ret_pct"] / 5)
+    assert r["total"]["losses"] == 2
+    assert r["total"]["r_avg"] == pytest.approx(((101 - 110) / 110 + (101 - 120) / 120) / 2 * 100)
     own = 10000 * 0.02 * ((101 - 110) / 110 + (101 - 120) / 120)
     assert r["capital"]["final"] == pytest.approx(10000 + own)
     # Most entries:
@@ -393,9 +401,11 @@ def test_basket_averages_and_closes_together():
 
 
 def test_basket_gap_past_the_stop_closes_at_the_open():
+    # v9.39: the stop is on the AVERAGE of the entries' %: at 105 it is (-4.5% - 12.5%) / 2.
     bars = [flat(0), green_full(1, 100), green_full(2, 110), bar(3, 105, 106, 104, 105.5)]
     (t,) = run(bars, modoSenal=True, modoCesta=True, slPctSS=5)["trades"]
-    assert t["reason"] == "SL" and t["exit_price"] == 105 and t["ret_pct"] == pytest.approx((105 - 115) / 115 * 100)
+    mean = ((105 - 110) / 110 + (105 - 120) / 120) / 2 * 100
+    assert t["reason"] == "SL" and t["exit_price"] == 105 and t["ret_pct"] == pytest.approx(mean)
     assert [op["cap"] for op in t["ops"]] == pytest.approx([(105 - 110) / 110 * 100, (105 - 120) / 120 * 100])
 
 
@@ -489,16 +499,17 @@ def test_weekly_loss_cap_counts_friday_losses_once():
     weeks = [bar(0, 100, 111, 90, 110.5), flat(7, 120)]
     common = dict(usarIntra=False, usarEscalera=True, e1Ll=50.0, other={"1W": weeks})
     out = run(days, maxPerdW=1, **common)
-    # v9.35: Monday does not reset the counter again, so Monday's buy waits for the next weekly signal.
-    assert [s["i"] for s in out["signals"]] == [1] and out["now"] == ["weekly losses (1/1)", "BUYS only (ladder)"]
-    assert [s["i"] for s in run(days, maxPerdW=2, **common)["signals"]] == [1, 5]
+    # v9.39: the long lost on Friday was opened BEFORE that weekly signal, so it does not count and
+    # Monday's buy opens. (v9.35: Monday does not reset the counter again; with it counted, it waited.)
+    assert [s["i"] for s in out["signals"]] == [1, 5] and out["now"] == ["BUYS only (ladder)"]
 
 
 def test_needs_only_what_is_used():
     inputs = check_inputs(INPUTS, {"usarEscalera": True, "filtro2": True})
     assert S.needs("1D", inputs) == {"1h", "1W"}  # path inside daily candles, and the weekly level
     assert S.needs("1W", check_inputs(INPUTS, {"tfIntra": "1D"})) == {"1D"}
-    assert S.needs("1h", check_inputs(INPUTS, {})) == set()  # path on the chart's own timeframe
+    assert S.needs("1h", check_inputs(INPUTS, {"usarEscalera": False})) == set()  # path on the chart's own timeframe
+    assert S.needs("30m", check_inputs(INPUTS, {"usarEscalera": False, "usarD1": True})) == {"1D"}  # v9.39
 
 
 # ---------- live candles (plan 7.5) ----------
@@ -582,8 +593,8 @@ def test_group_inside():
 
 
 def test_inputs_are_checked():
-    assert check_inputs(INPUTS, {})["cuerpoLlena"] == 85
-    assert check_inputs(INPUTS, {"cuerpoLlena": 70, "unknown": 1})["cuerpoLlena"] == 70
+    assert check_inputs(INPUTS, {})["cuerpoLlena"] == 70
+    assert check_inputs(INPUTS, {"cuerpoLlena": 80, "unknown": 1})["cuerpoLlena"] == 80
     with pytest.raises(InputError, match="at most 100"):
         check_inputs(INPUTS, {"cuerpoLlena": 120})
     with pytest.raises(InputError, match="whole number"):
@@ -600,12 +611,23 @@ def test_inputs_are_checked():
 
 def test_script_defaults():
     x = S.defaults()
-    assert (x["usarRacha"], x["nRojas"], x["nVerdes"], x["maxAbiertas"], x["normalCuenta"]) == (True, 3, 3, 10, "Repartido")
+    # v9.39 starts with the uploaded script's 30M-1 set.
+    assert (x["usarRacha"], x["nRojas"], x["nVerdes"], x["maxAbiertas"], x["noEngPrimera"]) == (True, 3, 5, 30, True)
+    assert (x["cuerpoLlena"], x["mechaFleco"], x["cuerpoMinFleco"], x["cuerpoEngulf"]) == (70, 50, 3, 55)
+    assert (x["usarEscalera"], x["maxPerdW"], x["objPct"], x["stopPct"], x["maxVelas"], x["cierraContra"]) == \
+        (True, 3, 15, 13, 800, True)
+    assert (x["maCual"], x["maLen1"], x["usarADX"], x["invPerdW"], x["invSinContra"], x["usarD1"], x["d1MA"]) == \
+        ("MA1", 8, False, False, True, False, 20)
+    assert (x["cestaPerd"], x["distContra"], x["distFavor"]) == (0, 0, 0)
+    assert not {"normalCuenta", "cestaCuenta", "cestaNMide", "cestaMin"} & set(x)
+    hidden = {d.key for d in INPUTS if d.hidden}
+    assert {"rachaFleco", "maxTradesSesion", "ganSeguidas", "perSeguidas", "cierraCambioW", "maLen2"} <= hidden
+    assert not {"maCual", "maLen1", "usarADX", "adxUmbral"} & hidden
     assert (x["e1nV"], x["e2Fl"], x["capIni"], x["csAncho"]) == (7, 70, 10000, 1.33)
     # v9.37: level 3 is 30 minutes and starts with the pegged TSLA 30m settings; CESTA is off.
     assert (x["tfS3"], x["e3L"], x["e3E"], x["e3Ll"], x["e3Fl"], x["e3FlM"], x["e3En"], x["e3nR"], x["e3nV"]) == \
         ("30m", False, True, 75, 55, 3, 61, 3, 5)
-    assert (x["e3NoEng1"], x["e3MA"], x["e3Sigue"], x["cestaN"], x["cestaMin"]) == (False, 0, True, 0, 2)
+    assert (x["e3NoEng1"], x["e3MA"], x["e3Sigue"], x["cestaN"]) == (False, 0, True, 0)
 
 
 def test_days_follow_new_york_time_across_the_clock_change():
@@ -678,34 +700,113 @@ def test_thirty_minute_candles():
 # ---------- v9.37: level 3 on 30 minutes, and the CESTA of normal mode ----------
 
 
-def test_cesta_closes_every_open_trade_when_their_gain_together_reaches_the_percent():
-    # Longs at 110 and 120; candle 3 closes at 125: +13.6% and +4.2%, together +17.8%. Candle 3 is
-    # also a buy, which the CESTA makes room for.
+def test_cesta_closes_every_open_trade_when_their_average_reaches_the_percent():
+    # Longs at 110 and 120. v9.39: the AVERAGE of their %, looked at inside candle 3 (open 115, high 125.5):
+    # +8% is reached on the way up, and both close at the exact price where the average is +8%.
     bars = [flat(0), green_full(1, 100), green_full(2, 110), green_full(3, 115)]
-    gain = (125 - 110) / 110 * 100 + (125 - 120) / 120 * 100
-    out = run(bars, usarIntra=False, maxAbiertas=2, cestaN=15.0)
+    a = 1 / 110 + 1 / 120
+    px = (2 + 2 * 0.08) / a
+    out = run(bars, usarIntra=False, maxAbiertas=2, cestaN=8.0)
     assert [(t["reason"], t["exit_i"]) for t in out["trades"]] == [("CESTA", 3), ("CESTA", 3)]
-    assert sum(t["ret_pct"] for t in out["trades"]) == pytest.approx(gain)
+    assert [t["exit_price"] for t in out["trades"]] == pytest.approx([px, px])
+    assert sum(t["ret_pct"] for t in out["trades"]) / 2 == pytest.approx(8.0)
+    # Candle 3 is also a buy, which the CESTA makes room for.
     assert [s["i"] for s in out["signals"]] == [1, 2, 3] and out["open_trades"][0]["entry"] == 125
-    assert out["open_now"]["cesta"] == {"pct": pytest.approx(0.0), "target": 15.0, "closed": 1}
-    # Below the %, too few open, or measured as the average: nothing closes, and the full book stops candle 3.
-    for opt in ({"cestaN": 18.0}, {"cestaN": 15.0, "cestaMin": 3}, {"cestaN": 15.0, "cestaNMide": "Media de las abiertas"}):
-        o = run(bars, usarIntra=False, maxAbiertas=2, **opt)
-        assert o["trades"] == [] and [s["i"] for s in o["signals"]] == [1, 2], opt
-    o = run(bars, usarIntra=False, maxAbiertas=2, cestaN=8.0, cestaNMide="Media de las abiertas")
-    assert [t["reason"] for t in o["trades"]] == ["CESTA", "CESTA"]
-    o = run(bars, usarIntra=False, maxAbiertas=2, cestaN=8.0, cestaNMide="Repartido (suma / máx. abiertas)")
-    assert [t["reason"] for t in o["trades"]] == ["CESTA", "CESTA"]
+    assert out["open_now"]["cesta"] == {"pct": pytest.approx(0.0), "target": 8.0, "loss": 0.0, "closed": 1}
+    # The high only takes the average to +9.3%: at 10% nothing closes, and the full book stops candle 3.
+    o = run(bars, usarIntra=False, maxAbiertas=2, cestaN=10.0)
+    assert o["trades"] == [] and [s["i"] for s in o["signals"]] == [1, 2]
     assert run(bars, usarIntra=False, maxAbiertas=2)["open_now"]["cesta"] is None  # off
 
 
-def test_cesta_leaves_out_trades_the_candle_closes_by_their_own_rules():
-    # The long from 110 reaches its target (126.5) on candle 3: a TP. The CESTA only sees the long from
-    # 120 (+5%), so 12% is not reached; counting the TP trade at the close (+14.5%) it would have been.
+def test_cesta_loss_box_and_opening_past_it():
+    # Longs at 110 and 120; candle 3 falls to 105, where the average is -8.5% (the long from 120 keeps its
+    # stop at 104.4). No signal on candle 3.
+    a = 1 / 110 + 1 / 120
+    bars = [flat(0), green_full(1, 100), green_full(2, 110), bar(3, 116, 117, 105, 107)]
+    out = run(bars, usarIntra=False, cestaPerd=8.0)
+    assert [t["reason"] for t in out["trades"]] == ["CESTA", "CESTA"]
+    assert out["trades"][0]["exit_price"] == pytest.approx((2 - 2 * 0.08) / a)
+    # Opening already past it: they close at the open.
+    bars[3] = bar(3, 104.6, 105, 104.5, 104.8)
+    out = run(bars, usarIntra=False, cestaPerd=8.0)
+    assert [t["exit_price"] for t in out["trades"]] == [104.6, 104.6]
+
+
+def test_cesta_needs_two_left_after_the_candles_own_closes():
+    # The long from 110 reaches its target (126.5) on candle 3: a TP. Only the long from 120 is left
+    # (+5.8% at the high), and with ONE left open the CESTA does nothing (v9.39).
     bars = [flat(0), green_full(1, 100), green_full(2, 110), bar(3, 120, 127, 119.5, 126)]
-    out = run(bars, usarIntra=False, cestaN=12.0, cestaMin=1)
+    out = run(bars, usarIntra=False, cestaN=5.0)
     assert [t["reason"] for t in out["trades"]] == ["TP"] and out["open_trades"][0]["entry"] == 120
-    assert out["open_now"]["cesta"] == {"pct": pytest.approx(5.0), "target": 12.0, "closed": 0}
+    assert out["open_now"]["cesta"] == {"pct": pytest.approx(5.0), "target": 5.0, "loss": 0.0, "closed": 0}
+
+
+def test_basket_take_profit_on_the_average_inside_the_candle():
+    # Entries 110 and 120; candle 3 reaches 129.5, where the average of their % is +12.8%: the basket
+    # closes at the exact price where it is +12%.
+    bars = [flat(0), green_full(1, 100), green_full(2, 110), bar(3, 120, 129.5, 119.8, 121)]
+    (t,) = run(bars, modoSenal=True, modoCesta=True, tpPctSS=12)["trades"]
+    assert t["reason"] == "TP" and t["ret_pct"] == 12 and t["entries"] == 2
+    assert t["exit_price"] == pytest.approx(2 * 1.12 / (1 / 110 + 1 / 120))
+
+
+def test_distance_between_trades_of_the_same_side():
+    # The second buy is 9.1% above the first (in favour).
+    bars = [flat(0), green_full(1, 100), green_full(2, 110)]
+    assert [s["i"] for s in run(bars, usarIntra=False, distFavor=10.0)["signals"]] == [1]
+    assert [s["i"] for s in run(bars, usarIntra=False, distFavor=5.0)["signals"]] == [1, 2]
+    assert [s["i"] for s in run(bars, usarIntra=False, distContra=5.0)["signals"]] == [1, 2]  # not against
+    out = run(bars, modoSenal=True, modoCesta=True, distFavor=10.0)
+    assert out["position"]["entries"] == 1
+    # Against: a buy 3% below the last one opens only with distContra at most 3.
+    x = {"distContra": 5.0, "distFavor": 0.0}
+    assert not dist_ok(x, 1, 100.0, 97.0) and dist_ok(x | {"distContra": 3.0}, 1, 100.0, 97.0)
+    assert dist_ok(x, -1, 100.0, 105.0) and not dist_ok(x, -1, 100.0, 103.0)  # sells: against is up
+    assert dist_ok(x, 1, None, 50.0)  # the first of a side always opens
+
+
+def test_reversed_after_the_weekly_losses():
+    # The weekly level is a BUY from Friday's close. Monday's long (120) is stopped on Tuesday: one loss
+    # since the weekly signal. Wednesday's sell (LLENA, against the weekly) is blocked as usual; with
+    # AL REVÉS it opens. Thursday's buy would close it, but the opposite signal is off until the next
+    # weekly signal.
+    days = [flat(0), flat(1, 110), flat(2, 110), flat(3, 110), bar(4, 110, 111, 109, 110.5),
+            green_full(7, 110), bar(8, 120, 121, 104, 106), red_full(9, 106), green_full(10, 96)]
+    weeks = [bar(0, 100, 111, 90, 110.5), flat(7, 120)]
+    common = dict(usarIntra=False, usarEscalera=True, e1Ll=50.0, maxPerdW=1, cierraContra=True, other={"1W": weeks})
+    out = run(days, **common)
+    assert [s["i"] for s in out["signals"]] == [5] and out["now"] == ["weekly losses (1/1)", "BUYS only (ladder)"]
+    out = run(days, invPerdW=True, **common)
+    assert [(s["i"], s["dir"]) for s in out["signals"]] == [(5, 1), (7, -1)]
+    assert out["open_trades"][0]["dir"] == -1
+    assert out["now"] == ["REVERSED (new losses 0/1): SELLS only", "opposite signal OFF until the next weekly signal"]
+    out = run(days, invPerdW=True, invSinContra=False, **common)
+    assert [t["reason"] for t in out["trades"]][-1] == "contra"
+
+
+def test_daily_1_bias_from_yesterday():
+    # A 30-minute buy on Wednesday 3 January opens only if Tuesday's daily candle left a Daily 1 BUY.
+    chart = [Bar(_ny(3, 10, 0), 110, 110.5, 109.5, 110, 1), Bar(_ny(3, 10, 30), 110, 120.5, 109.5, 120, 1)]
+    # (After a doji a red LLENA is an ENGULFING, which Daily 1 leaves out; so the sell follows a red candle.)
+    for mon, tue, bias, opens in ((flat(0), green_full(1, 100), "BUYS only", True),
+                                  (red_small(0, 111), red_full(1, 110), "SELLS only", False)):
+        days = [mon, tue, flat(2, 110)]
+        out = run(chart, tf="30m", usarIntra=False, usarD1=True, d1MA=0, d1R=False, other={"1D": days})
+        assert bool(out["signals"]) == opens and out["now"] == [f"DAILY 1: {bias}"]
+        assert out["daily1"] == {"bias": 1 if opens else -1}
+    # Without Wednesday's daily candle in the feed yet, it is still Tuesday's bias.
+    out = run(chart, tf="30m", usarIntra=False, usarD1=True, d1MA=0, d1R=False, other={"1D": [flat(0), green_full(1, 100)]})
+    assert out["daily1"] == {"bias": 1}
+    out = run(chart, tf="30m", usarIntra=False, usarD1=True, d1MA=0, other={"1D": [flat(0), flat(1), flat(2)]})
+    assert out["signals"] == [] and out["now"] == ["DAILY 1: no signal yet, nothing"]
+
+
+def test_months_rows():
+    m = _months({202401: 5.0, 202402: -1.0, 202403: 0.0, 202404: -2.0, 202405: 3.0, 202406: -1.0})
+    # March has no change: it neither breaks nor adds to the run of losing months.
+    assert m == {"won": 2, "lost": 3, "max_won_row": 1, "max_lost_row": 2, "now_won_row": None, "now_lost_row": 1,
+                 "losing_runs": [{"months": 1, "times": 1}, {"months": 2, "times": 1}]}
 
 
 def _ny(d: int, hh: int, mm: int) -> int:

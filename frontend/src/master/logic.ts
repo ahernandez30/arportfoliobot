@@ -89,6 +89,10 @@ export function ruleText(i: Inputs, hijo?: { count: number; open: number } | nul
     const sl = i.slPctSS as number
     return `${i.modoCesta ? 'Basket' : 'Signal to signal'}${tp || sl ? ` · take profit ${tp || '—'}% / stop ${sl || '—'}%` : ' (opposite signal only)'}`
   }
-  const cesta = (i.cestaN as number) > 0 ? ` · CESTA at ${i.cestaN}%` : ''
+  const gain = i.cestaN as number
+  const loss = (i.cestaPerd as number) || 0
+  const cesta = gain > 0 || loss > 0
+    ? ` · CESTA average at ${[gain > 0 ? `+${gain}%` : '', loss > 0 ? `−${loss}%` : ''].filter(Boolean).join(' / ')}`
+    : ''
   return `Target ${i.objPct}% / stop ${i.stopPct}% · ${i.cierraMercado ? `closes after ${i.maxVelas} candles` : `floats after ${i.maxVelas} candles`}${cesta}`
 }

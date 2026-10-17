@@ -45,8 +45,14 @@ def daily(n):
 BARS = daily(400)
 
 
+# The v9.38 defaults these synthetic candles were made for (v9.39 starts with the 30M-1 set).
+V938 = {"cuerpoLlena": 85.0, "mechaFleco": 65.0, "cuerpoMinFleco": 4.0, "cuerpoEngulf": 61.0, "noEngPrimera": False,
+        "nVerdes": 3, "usarEscalera": False, "maxPerdW": 0, "maxVelas": 13, "maxAbiertas": 10, "cierraContra": False,
+        "maCual": "Ninguna", "maLen1": 50}
+
+
 def engine_run(inputs=None, bars=BARS):
-    x = S.defaults() | (inputs or {})
+    x = S.defaults() | V938 | (inputs or {})
     return S.run(StrategyData("TSLA", "1D", bars, len(bars), {}), x), x
 
 
@@ -309,10 +315,12 @@ def test_runs_are_private(md, rafa):
     assert other.delete(f"/api/backtest/runs/{run['id']}").status_code == 404
 
 
-def test_groups_8_and_9_are_hidden_and_stay_at_their_defaults():
+def test_group_8_and_the_fixed_settings_are_hidden_and_stay_at_their_defaults():
     from app.strategy.base import check_inputs
-    from app.strategy.swing import G_CS, G_MA
+    from app.strategy.swing import FIXED, G_CS
     hidden = {d.key for d in S.inputs if d.hidden}
-    assert hidden == {d.key for d in S.inputs if d.group in (G_CS, G_MA)} and "maCual" in hidden and "csAncho" in hidden
-    x = check_inputs(S.inputs, {"maCual": "MA1", "usarADX": True, "csAncho": 5.0, "objPct": 7.0})
-    assert x["maCual"] == "Ninguna" and x["usarADX"] is False and x["csAncho"] == 1.33 and x["objPct"] == 7.0
+    assert hidden == {d.key for d in S.inputs if d.group == G_CS} | set(FIXED) and "csAncho" in hidden
+    x = check_inputs(S.inputs, {"maCual": "Ninguna", "usarADX": True, "csAncho": 5.0, "objPct": 7.0, "cierraCambioW": True})
+    # v9.39: the moving average and the ADX are offered again.
+    assert x["maCual"] == "Ninguna" and x["usarADX"] is True and x["objPct"] == 7.0
+    assert x["csAncho"] == 1.33 and x["cierraCambioW"] is False
