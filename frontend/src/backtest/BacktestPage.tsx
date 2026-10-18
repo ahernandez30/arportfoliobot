@@ -313,12 +313,13 @@ function Result({ run, tz }: { run: BacktestRun; tz: string }) {
         )}
         {optionsShown && s.option_prices !== 'real' && (
           <p className="msg msg-warn">
-            Option results are an <b>estimate</b>: prices come from a standard pricing model using the stock’s volatility over the previous {r.notes.vol_days} trading days and
+            Option results are an <b>estimate</b>: prices come from a standard pricing model using a blend of the stock’s volatility over the previous {r.notes.vol_days} and
+            {r.notes.long_vol_days} trading days, raised for strikes far from the price as real prices are (fitted to real TSLA prices), and
             a {r.notes.rate_pct}% interest rate, with weekly Friday expirations and a bid/ask spread. Real past prices can differ a lot (around earnings especially).
             Choose “Real (Databento)” to use real prices from 28 March 2023 on.
             {r.notes.estimate_check && (
               <> Checked against {r.notes.estimate_check.overall.n.toLocaleString()} real {run.symbol} prices ({r.notes.estimate_check.period}): a typical estimated price was
-                {' '}{r.notes.estimate_check.overall.typical_miss_pct}% off (usually too low), and one in ten was off by more than about
+                {' '}{r.notes.estimate_check.overall.typical_miss_pct}% off{Math.abs(r.notes.estimate_check.overall.bias_pct) >= 2 ? (r.notes.estimate_check.overall.bias_pct < 0 ? ' (usually too low)' : ' (usually too high)') : ''}, and one in ten was off by more than about
                 {' '}{Math.max(-r.notes.estimate_check.overall.middle_80_pct[0], r.notes.estimate_check.overall.middle_80_pct[1])}%.</>
             )}
           </p>

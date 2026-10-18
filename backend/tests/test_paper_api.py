@@ -303,7 +303,7 @@ def test_option_chain(rafa, world):
                 OptionQuote("SPYC605", "SPY", "call", 605.0, EXP, 1.0, 1.1, 1.05, 1, 1)]
 
     async def exps(symbol):
-        return [date.today() - timedelta(days=1), EXP]
+        return [datetime.now(NY).date() - timedelta(days=1), EXP]  # yesterday in New York, as the app judges it
 
     world.md.option_chain = chain
     world.md.option_expirations = exps

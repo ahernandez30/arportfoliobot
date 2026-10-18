@@ -133,6 +133,56 @@ def test_model_quotes_use_only_the_past():
                                                       150.0) == (bid, ask)
 
 
+def test_estimate_volatility_blends_short_and_long_and_smiles():
+    from app.backtest.option_history import LONG_VOL_DAYS, SHORT_WEIGHT, smile_vol
+    # A year of wild moves, then a quiet month: the blend stays well above the quiet month's own.
+    wild = [100.0 * (1.06 if i % 2 else 0.95) ** (i % 2) for i in range(LONG_VOL_DAYS)]
+    closes = [type(c)(c.day, p) for c, p in zip(bt.daily_closes(daily(LONG_VOL_DAYS + 40)),
+                                                 wild + [100.0 + 0.1 * (i % 2) for i in range(40)])]
+    h = ModelOptionHistory({"TSLA": closes})
+    last = closes[-1].day
+    short, long = h.vol("TSLA", last), h.vol("TSLA", last, n=LONG_VOL_DAYS)
+    assert short < 0.1 < long
+    assert h.blended_vol("TSLA", last) == pytest.approx(SHORT_WEIGHT * short + (1 - SHORT_WEIGHT) * long)
+    # The smile: dearer the further from the price, on both sides, a little more below than above.
+    at, far_up, far_down = smile_vol(0.5, 100, 100, 0.25), smile_vol(0.5, 100, 135, 0.25), smile_vol(0.5, 100, 100 / 1.35, 0.25)
+    assert at < far_up < far_down
+    assert smile_vol(0.5, 100, 1000, 0.25) == smile_vol(0.5, 100, 5000, 0.25)  # stops rising far out
+
+
+def test_far_out_of_the_money_after_a_quiet_month_is_not_nearly_free():
+    """The 25 Oct 2021 case: a 35% out-of-the-money call with 95 days left, after a quiet month in a
+    volatile year, was priced at $0.41 on the 30-day volatility alone; real prices were dollars."""
+    from app.backtest.option_history import LONG_VOL_DAYS
+    year = [100.0 * (1.035 if i % 2 else 1 / 1.035) ** (i % 2) for i in range(LONG_VOL_DAYS)]
+    quiet = [100.0 * (1.008 if i % 2 else 1 / 1.008) ** (i % 2) for i in range(31)]
+    closes = [type(c)(c.day, p) for c, p in zip(bt.daily_closes(daily(LONG_VOL_DAYS + 31)), year + quiet)]
+    h = ModelOptionHistory({"TSLA": closes})
+    at = datetime.combine(closes[-1].day + timedelta(days=1), datetime.min.time().replace(hour=12), NY)
+    exp = at.date() + timedelta(days=95)
+    bid, ask = h.quote("TSLA", "call", options.Decimal(135), exp, at, 100.0)
+    old = black_scholes("call", 100.0, 135.0, 95 / 365, h.vol("TSLA", at.date(), after_close=False))
+    assert old < 0.5 and float(bid) > 4 * old
+
+
+def test_options_too_cheap_or_without_a_bid_are_skipped():
+    r = replay(options.OptionSetup(structure="directional", strike_pct=50, risk_usd=5000, expiry_mode="fixed",
+                                   expiry_days=3))
+    problems = [o["problem"] for t in r["trades"] for o in t["options"]["directional"]
+                if "problem" in o and "two-sided quote near the strike" not in o["problem"]]  # (the first weeks: no volatility yet)
+    assert problems and all("bid $0.00" in p or "too cheap" in p for p in problems)
+    assert all(o["entry"] >= 0.10 for o in priced(r, "directional"))
+
+
+def test_a_percent_that_cannot_be_reached_is_skipped_not_moved(monkeypatch):
+    monkeypatch.setattr(options, "STRIKE_WINDOW", 0.2)
+    r = replay(options.OptionSetup(structure="directional", strike_pct=40, risk_usd=5000))
+    problems = {o["problem"] for t in r["trades"] for o in t["options"]["directional"]
+                if "two-sided quote near the strike" not in o["problem"]}
+    assert problems and not priced(r, "directional")
+    assert all(p.startswith(("No call listed near 40%", "No put listed near 40%")) for p in problems), problems
+
+
 def test_strike_distance_uses_only_trades_closed_before_the_signal():
     out, _ = engine_run()
     prior = options.PriorHistory(out["trades"], "1D")

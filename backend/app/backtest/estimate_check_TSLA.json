@@ -1,98 +1,98 @@
 {
  "symbol": "TSLA",
- "checked": "2026-10-09",
+ "checked": "2026-10-18",
  "period": "April 2023 to October 2026",
- "source": "Databento OPRA best bid/ask at half-hour marks, contracts from 0 to over 180 days, mostly 30-210 days",
+ "source": "Databento OPRA best bid/ask at half-hour marks, contracts from 0 to over 180 days, mostly 30-210 days; estimate with the blended volatility and smile (before: typical miss 17.0%, over 15% away 30.9%)",
  "overall": {
-  "n": 2386310,
-  "typical_miss_pct": 17.3,
-  "bias_pct": -6.4,
+  "n": 2442184,
+  "typical_miss_pct": 8.4,
+  "bias_pct": 2.1,
   "middle_80_pct": [
-   -44,
-   39
+   -15,
+   28
   ],
-  "real_spread_pct": 0.88
+  "real_spread_pct": 0.89
  },
  "by_days_to_expiration": {
   "0-7 days": {
-   "n": 61054,
-   "typical_miss_pct": 24.5,
-   "bias_pct": -15.0,
+   "n": 109296,
+   "typical_miss_pct": 10.8,
+   "bias_pct": -0.4,
    "middle_80_pct": [
-    -93,
-    3
+    -50,
+    35
    ],
-   "real_spread_pct": 1.9
+   "real_spread_pct": 1.73
   },
   "8-30 days": {
-   "n": 433122,
-   "typical_miss_pct": 21.7,
-   "bias_pct": -8.8,
+   "n": 434914,
+   "typical_miss_pct": 13.6,
+   "bias_pct": 2.7,
    "middle_80_pct": [
-    -77,
-    45
+    -27,
+    59
    ],
    "real_spread_pct": 1.44
   },
   "31-90 days": {
-   "n": 907671,
-   "typical_miss_pct": 16.3,
-   "bias_pct": -5.7,
+   "n": 910417,
+   "typical_miss_pct": 9.3,
+   "bias_pct": 3.9,
    "middle_80_pct": [
-    -41,
-    42
+    -14,
+    32
    ],
    "real_spread_pct": 0.86
   },
   "91-180 days": {
-   "n": 742850,
-   "typical_miss_pct": 16.5,
-   "bias_pct": -5.5,
+   "n": 745398,
+   "typical_miss_pct": 7.0,
+   "bias_pct": 2.3,
    "middle_80_pct": [
-    -33,
-    41
+    -12,
+    18
    ],
    "real_spread_pct": 0.72
   },
   "over 180 days": {
-   "n": 241613,
-   "typical_miss_pct": 17.5,
-   "bias_pct": -7.9,
+   "n": 242159,
+   "typical_miss_pct": 5.7,
+   "bias_pct": -0.8,
    "middle_80_pct": [
-    -33,
-    30
+    -12,
+    12
    ],
    "real_spread_pct": 0.7
   }
  },
  "by_distance": {
   "within 5% of the price": {
-   "n": 759621,
-   "typical_miss_pct": 14.7,
-   "bias_pct": -5.7,
+   "n": 796277,
+   "typical_miss_pct": 8.0,
+   "bias_pct": 2.6,
    "middle_80_pct": [
-    -26,
-    34
+    -13,
+    20
    ],
-   "real_spread_pct": 0.68
+   "real_spread_pct": 0.69
   },
   "5-15% away": {
-   "n": 1093478,
-   "typical_miss_pct": 16.7,
-   "bias_pct": -6.0,
+   "n": 1111002,
+   "typical_miss_pct": 7.8,
+   "bias_pct": 2.5,
    "middle_80_pct": [
-    -40,
-    39
+    -13,
+    28
    ],
-   "real_spread_pct": 0.87
+   "real_spread_pct": 0.88
   },
   "over 15% away": {
-   "n": 533211,
-   "typical_miss_pct": 31.2,
-   "bias_pct": -9.4,
+   "n": 534905,
+   "typical_miss_pct": 12.2,
+   "bias_pct": 0.4,
    "middle_80_pct": [
-    -83,
-    64
+    -27,
+    47
    ],
    "real_spread_pct": 1.39
   }

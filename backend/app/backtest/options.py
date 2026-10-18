@@ -34,9 +34,15 @@ from app.paper_rules import Book, market_price
 from app.strategy.base import TIMEFRAME_SECONDS
 
 HUNDRED = Decimal(100)
-STRIKE_WINDOW = 0.35  # strikes looked at: within this share of the price...
+STRIKE_WINDOW = 0.55  # strikes looked at: within this share of the price (so 50% out of the money is reachable)...
 NEAREST_STRIKES = 8  # ...and of those, the ones nearest the target
 OTHER_LEG_STRIKES = 3  # strikes priced around a spread's other leg
+# A strike chosen by percent must land this close (percentage points) to the percent asked for, or the
+# signal is skipped with the reason, rather than quietly trading a nearer strike (Rafa, 2026-10-17).
+PCT_TOLERANCE = 2.5
+# The option bought on its own must have someone bidding for it and cost at least this much: below it,
+# a few cents of error in the price turn into thousands of contracts (Rafa, 2026-10-17).
+MIN_OPTION_PRICE = Decimal("0.10")
 STRUCTURE_LABELS = {"directional": "Long call/put", "debit_spread": "Debit spread", "credit_spread": "Credit spread"}
 
 
@@ -165,6 +171,10 @@ def place(setup: OptionSetup, direction: int, price: float, at: datetime, exp: d
         if not usable:
             return f"No {otype}s with a two-sided quote near the strike."
         best = min(usable, key=lambda lg: (abs(float(lg.strike) - target), lg.strike))
+        got = (float(best.strike) / price - 1) * 100 * sign
+        if abs(got - setup.strike_pct) > PCT_TOLERANCE:
+            return (f"No {otype} listed near {setup.strike_pct:g}% out of the money "
+                    f"(the nearest with a two-sided quote is {got:.1f}%).")
         best_delta = leg_delta(otype, best, price, years)
     else:
         # A first guess from the nearest-the-money option's volatility, then each nearby strike's own delta.
@@ -178,6 +188,10 @@ def place(setup: OptionSetup, direction: int, price: float, at: datetime, exp: d
         best_delta, best = min(scored, key=lambda x: (abs(x[0] - setup.strike_delta), x[1].strike))
 
     if setup.structure == "directional":
+        if not best.book.bid or best.book.bid <= 0:
+            return f"Nobody bids for the {best.strike} {otype} (bid $0.00): it could not be sold again."
+        if best.book.ask < MIN_OPTION_PRICE:
+            return f"The {best.strike} {otype} costs under ${MIN_OPTION_PRICE} (ask ${best.book.ask}): too cheap to price reliably."
         return Placed(auto_plan.Choice(setup.structure, otype, None, best, best.strike), best_delta)
     other_target = float(best.strike) + sign * setup.width_usd
     beyond = [k for k in listed if (k - best.strike) * sign > 0]

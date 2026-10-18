@@ -104,6 +104,7 @@ export type BacktestResult = {
     options_source: string | null
     rate_pct: number
     vol_days: number
+    long_vol_days: number
     fill_rule: 'bid_ask' | 'mid'
     /** How far the estimate was from real prices for this symbol (Backtest plan, step 2). */
     estimate_check?: { period: string; overall: { n: number; typical_miss_pct: number; bias_pct: number; middle_80_pct: [number, number] } } | null

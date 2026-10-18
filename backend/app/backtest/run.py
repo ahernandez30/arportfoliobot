@@ -13,7 +13,7 @@ from pathlib import Path
 from datetime import date, datetime, timedelta, timezone
 
 from app.backtest import options, stats
-from app.backtest.option_history import RATE, VOL_DAYS, OptionHistory
+from app.backtest.option_history import LONG_VOL_DAYS, RATE, VOL_DAYS, OptionHistory
 from app.marketdata.base import Bar, DailyClose
 from app.strategy.base import Strategy, StrategyData
 
@@ -102,7 +102,7 @@ def run(strategy: Strategy, data: StrategyData, inputs: dict, setup: Setup, hist
                   "history_from": bars[0].time if bars else None},
         "notes": {
             "options_source": history.source if history is not None and setup.option is not None else None,
-            "rate_pct": RATE * 100, "vol_days": VOL_DAYS, "fill_rule": setup.fill_rule,
+            "rate_pct": RATE * 100, "vol_days": VOL_DAYS, "long_vol_days": LONG_VOL_DAYS, "fill_rule": setup.fill_rule,
             "estimate_check": estimate_check(data.symbol) if history is not None and history.source == "estimate" else None,
         },
     }

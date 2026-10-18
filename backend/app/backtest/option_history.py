@@ -5,10 +5,14 @@ past, so real history (Databento, Rafa's choice for later) can replace the estim
 touching the backtest or the screens.
 
 `ModelOptionHistory` (Rafa's choice for now, 2026-10-05) ESTIMATES prices: the standard
-Black-Scholes formula, with the stock's own volatility over the previous 30 trading days, a fixed
-interest rate, no dividends, Friday expirations every week, a strike grid like the listed one, and
-a bid/ask spread around the model price. Real prices differ (volatility smiles, events, wider
-spreads in fast markets), so every result built on it is labelled an estimate.
+Black-Scholes formula, a fixed interest rate, no dividends, Friday expirations every week, a strike
+grid like the listed one, and a bid/ask spread around the model price. The volatility (Rafa,
+2026-10-17, fitted to real TSLA quotes April 2023 to October 2026) blends the stock's own over the
+previous 30 and 252 trading days, plus a smile that rises the further the strike is from the price:
+real option prices move much less than a 30-day volatility does, and charge more far from the money.
+Using the 30-day one alone priced far out-of-the-money options after a quiet month at a few cents,
+which made such backtests look absurdly good. Real prices still differ (events, wider spreads in
+fast markets), so every result built on it is labelled an estimate.
 """
 import bisect
 import math
@@ -20,7 +24,16 @@ from statistics import NormalDist
 from app.marketdata.base import DailyClose
 
 RATE = 0.04  # yearly interest rate used for pricing
-VOL_DAYS = 30  # trading days of closes behind the volatility
+VOL_DAYS = 30  # trading days of closes behind the short volatility...
+LONG_VOL_DAYS = 252  # ...and the long one
+SHORT_WEIGHT = 0.3  # the short one's share of the blend
+# The smile: volatility x exp(LEVEL + UP or DOWN x d + CURVE x d^2), d the strike's distance from the
+# price in standard deviations to expiration (|ln(strike / price)| / (vol x sqrt(years))), UP for
+# strikes above the price and DOWN below. Fitted to real TSLA quotes (227,733 near or out of the money,
+# April 2023 to October 2026): typical miss of the price 10% instead of 23%, over 25% from the money
+# 25% instead of 72%.
+SMILE_LEVEL, SMILE_UP, SMILE_DOWN, SMILE_CURVE = -0.0754, 0.0231, 0.0337, 0.0309
+SMILE_MAX_D = 4.0  # the smile stops rising beyond this distance
 MIN_VOL, MAX_VOL = 0.05, 3.0
 HALF_SPREAD_PCT = 0.0045  # half the bid/ask spread, as a share of the price (real TSLA: 0.44%, checked 2026-10-09)...
 MIN_HALF_SPREAD = 0.025  # ...but never under 2.5 cents
@@ -111,6 +124,16 @@ def historical_vol(closes: list[float]) -> float | None:
     return min(MAX_VOL, max(MIN_VOL, math.sqrt(var * 252.0)))
 
 
+def smile_vol(base: float, spot: float, strike: float, years: float) -> float:
+    """The volatility for one strike: the stock's blended volatility, adjusted by the smile."""
+    if years <= 0 or base <= 0:
+        return base
+    k = math.log(strike / spot)
+    d = min(abs(k) / (base * math.sqrt(years)), SMILE_MAX_D)
+    tilt = SMILE_UP if k > 0 else SMILE_DOWN
+    return min(MAX_VOL, max(MIN_VOL, base * math.exp(SMILE_LEVEL + tilt * d + SMILE_CURVE * d * d)))
+
+
 def strike_step(price: float) -> float:
     """Distance between listed strikes near the price, roughly as exchanges list them."""
     if price < 25:
@@ -142,12 +165,21 @@ class ModelOptionHistory(OptionHistory):
         self._days = {s: [c.day for c in rows] for s, rows in self.daily.items()}
         self.rate = rate
 
-    def vol(self, symbol: str, day: date, after_close: bool = True) -> float | None:
-        """Volatility from the closes known then: the day's own close only once it has happened."""
+    def vol(self, symbol: str, day: date, after_close: bool = True, n: int = VOL_DAYS) -> float | None:
+        """Volatility over `n` trading days from the closes known then: the day's own close only once
+        it has happened (fewer days early in the history)."""
         days = self._days.get(symbol, [])
         i = bisect.bisect_right(days, day) if after_close else bisect.bisect_left(days, day)
-        closes = [c.close for c in self.daily[symbol][max(0, i - VOL_DAYS - 1):i]] if days else []
+        closes = [c.close for c in self.daily[symbol][max(0, i - n - 1):i]] if days else []
         return historical_vol(closes)
+
+    def blended_vol(self, symbol: str, day: date, after_close: bool = True) -> float | None:
+        """The short and long volatility blended, before the smile."""
+        short = self.vol(symbol, day, after_close)
+        if short is None:
+            return None
+        long = self.vol(symbol, day, after_close, LONG_VOL_DAYS) or short
+        return SHORT_WEIGHT * short + (1 - SHORT_WEIGHT) * long
 
     def expirations(self, symbol: str, at: datetime) -> list[date]:
         d = at.date()
@@ -163,11 +195,12 @@ class ModelOptionHistory(OptionHistory):
 
     def quote(self, symbol: str, option_type: str, strike: Decimal, expiration: date, at: datetime,
               underlying: float) -> tuple[Decimal | None, Decimal | None]:
-        vol = self.vol(symbol, at.date(), after_close=at.hour >= 16)
-        if vol is None:
+        base = self.blended_vol(symbol, at.date(), after_close=at.hour >= 16)
+        if base is None:
             return None, None
         close = datetime(expiration.year, expiration.month, expiration.day, 16, 0, tzinfo=at.tzinfo)
         years = max((close - at).total_seconds(), 0.0) / (365.0 * 86400.0)
+        vol = smile_vol(base, underlying, float(strike), years)
         mid = black_scholes(option_type, underlying, float(strike), years, vol, self.rate)
         half = max(MIN_HALF_SPREAD, mid * HALF_SPREAD_PCT)
         return _cents(mid - half), _cents(mid + half)
